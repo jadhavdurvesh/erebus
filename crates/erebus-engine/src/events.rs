@@ -7,6 +7,8 @@ use erebus_types::{FlowId, Verdict};
 use std::collections::VecDeque;
 use thiserror::Error;
 
+pub const MAX_EVENT_TEXT_BYTES: usize = 256;
+
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub enum SecurityEventKind {
     PolicyDecision {
@@ -55,6 +57,11 @@ pub enum EventJournalError {
         "event timestamp moved backwards: previous {previous_ms} ms, received {received_ms} ms"
     )]
     ClockWentBackwards { previous_ms: u64, received_ms: u64 },
+    #[error("event text is too long: {actual_bytes} bytes; maximum is {max_bytes}")]
+    EventTextTooLong {
+        actual_bytes: usize,
+        max_bytes: usize,
+    },
     #[error("event sequence space is exhausted")]
     SequenceExhausted,
 }
@@ -101,6 +108,7 @@ impl EventJournal {
         flow_id: Option<FlowId>,
         kind: SecurityEventKind,
     ) -> Result<RecordOutcome, EventJournalError> {
+        validate_event_text(&kind)?;
         if let Some(previous_ms) = self.last_timestamp_ms {
             if timestamp_ms < previous_ms {
                 return Err(EventJournalError::ClockWentBackwards {
@@ -155,6 +163,32 @@ impl EventJournal {
         }
         removed
     }
+}
+
+fn validate_event_text(kind: &SecurityEventKind) -> Result<(), EventJournalError> {
+    let text_fields: Vec<&str> = match kind {
+        SecurityEventKind::PolicyDecision { rule_id, .. } => rule_id.iter().map(String::as_str).collect(),
+        SecurityEventKind::PolicyReloaded { .. }
+        | SecurityEventKind::ConnectionCreated
+        | SecurityEventKind::ConnectionExpired => Vec::new(),
+        SecurityEventKind::ConnectionStateChanged { state } => vec![state],
+        SecurityEventKind::RateLimitExceeded { scope } => vec![scope],
+        SecurityEventKind::EnforcementFailure {
+            adapter,
+            error_code,
+        } => vec![adapter, error_code],
+    };
+
+    for text in text_fields {
+        if text.len() > MAX_EVENT_TEXT_BYTES {
+            return Err(EventJournalError::EventTextTooLong {
+                actual_bytes: text.len(),
+                max_bytes: MAX_EVENT_TEXT_BYTES,
+            });
+        }
+    }
+
+    Ok(())
 }
 
 #[cfg(test)]
@@ -246,6 +280,29 @@ mod tests {
 
         assert_eq!(journal.prune_before(3), 2);
         assert_eq!(journal.snapshot()[0].timestamp_ms, 3);
+    }
+
+    #[test]
+    fn oversized_event_text_is_rejected_without_consuming_sequence() {
+        let mut journal = EventJournal::new(2).unwrap();
+        let oversized = "x".repeat(MAX_EVENT_TEXT_BYTES + 1);
+
+        assert_eq!(
+            journal.record(
+                1,
+                None,
+                SecurityEventKind::RateLimitExceeded { scope: oversized }
+            ),
+            Err(EventJournalError::EventTextTooLong {
+                actual_bytes: MAX_EVENT_TEXT_BYTES + 1,
+                max_bytes: MAX_EVENT_TEXT_BYTES
+            })
+        );
+
+        let recorded = journal
+            .record(1, None, SecurityEventKind::ConnectionCreated)
+            .unwrap();
+        assert_eq!(recorded.sequence, 1);
     }
 
     #[test]
