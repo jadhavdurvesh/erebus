@@ -23,8 +23,9 @@ This roadmap describes intended work; listed items are not claims of completed f
 - [x] Add offline CLI commands for policy validation and export.
 - [x] Add transactional in-memory policy snapshots; invalid reloads leave the active policy unchanged.
 - [x] Add config, CLI, and engine reload tests.
-- [ ] Define structured decision and enforcement-failure events.
-- [ ] Specify bounded queues and shutdown behaviour.
+- [x] Add a bounded structured security-event journal with sequence numbers and explicit rollover reporting.
+- [x] Document monotonic timestamp semantics and metadata-only event fields.
+- [ ] Add a durable export sink and bounded asynchronous delivery contract.
 
 ## Milestone 2 — Sand OS integration research (dependency-gated)
 
@@ -68,9 +69,10 @@ This roadmap describes intended work; listed items are not claims of completed f
 
 ## Milestone 7 — Advanced security
 
-- [ ] Stateful connection tracking.
+- [x] Add bounded TCP/UDP connection tracking with state transitions, timeouts, interface-aware flow keys, and capacity handling.
+- [x] Add token-bucket and bounded per-key rate-limiting primitives.
+- [ ] Integrate trackers and rate limits with native adapter traffic callbacks.
 - [ ] DNS policy integration.
-- [ ] Rate limiting.
 - [ ] Threat intelligence feeds with provenance and expiry.
 - [ ] Anomaly detection as an advisory layer, not an unchecked authority.
 - [ ] Optional management dashboard.
