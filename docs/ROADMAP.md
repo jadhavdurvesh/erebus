@@ -17,9 +17,14 @@ This roadmap describes intended work; listed items are not claims of completed f
 - [x] Match source/destination prefixes, ports, direction, protocol, and exact interface names.
 - [x] Reject empty interface selectors and duplicate/empty rule IDs.
 - [x] Add mock adapter lifecycle, verdict-forwarding, and enforcement-failure tests.
-- [ ] Define a versioned, validated policy configuration schema.
+- [x] Define a versioned, validated schema-1 TOML policy document.
+- [x] Reject unknown fields, unsupported versions, malformed selectors, and duplicate IDs.
+- [x] Add canonical TOML export while preserving rule order.
+- [x] Add offline CLI commands for policy validation and export.
+- [x] Add transactional in-memory policy snapshots; invalid reloads leave the active policy unchanged.
+- [x] Add config, CLI, and engine reload tests.
 - [ ] Define structured decision and enforcement-failure events.
-- [ ] Specify bounded queues, policy update semantics, and shutdown behaviour.
+- [ ] Specify bounded queues and shutdown behaviour.
 
 ## Milestone 2 — Sand OS integration research (dependency-gated)
 
@@ -32,7 +37,7 @@ This roadmap describes intended work; listed items are not claims of completed f
 - [ ] Build a real Sand OS adapter against the documented native interfaces.
 - [ ] Add simulator and integration tests before enabling enforcement.
 
-## Milestone 2 — Sand OS minimum viable enforcement
+## Milestone 3 — Sand OS minimum viable enforcement
 
 - [ ] Implement native adapter using Sand OS networking facilities.
 - [ ] Support explicit inbound/outbound allow and deny rules.
@@ -41,27 +46,27 @@ This roadmap describes intended work; listed items are not claims of completed f
 - [ ] Validate behaviour under adapter crash and restart.
 - [ ] Document how to disable or recover the firewall.
 
-## Milestone 3 — Operations and observability
+## Milestone 4 — Operations and observability
 
 - [ ] Structured event log and audit trail.
 - [ ] CLI for status, policy validation, and diagnostics.
 - [ ] Secure control-plane permissions.
 - [ ] Resource limits and performance benchmarks.
 
-## Milestone 4 — Linux adapter
+## Milestone 5 — Linux adapter
 
 - [ ] Implement Linux adapter using supported native facilities.
 - [ ] Test IPv4/IPv6, TCP/UDP, loopback, and interface changes.
 - [ ] Test boot, shutdown, upgrade, and rollback behaviour.
 
-## Milestone 5 — Windows adapter
+## Milestone 6 — Windows adapter
 
 - [ ] Design WFP integration and service boundary.
 - [ ] Implement signed and appropriately packaged components as required.
 - [ ] Test service lifecycle, policy persistence, and recovery.
 - [ ] Validate IPv4/IPv6 and application identity handling.
 
-## Milestone 6 — Advanced security
+## Milestone 7 — Advanced security
 
 - [ ] Stateful connection tracking.
 - [ ] DNS policy integration.
