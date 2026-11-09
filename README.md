@@ -37,6 +37,8 @@ EREBUS is an independently designed firewall and network-security platform. Its 
 
 The core does not directly modify packets or call platform APIs. An adapter obtains a normalized packet/flow description, asks the core for a verdict, and applies that verdict using the platform's supported enforcement interface.
 
+The current policy core supports ordered rules using direction, protocol, IPv4/IPv6 CIDR source and destination prefixes, source/destination ports, and exact interface names. See [docs/POLICY_MODEL.md](docs/POLICY_MODEL.md) for matching semantics and limitations. The sample TOML is illustrative only; a configuration loader and live packet enforcement are not implemented yet.
+
 ## Repository layout
 
 ```text
@@ -50,6 +52,7 @@ The core does not directly modify packets or call platform APIs. An adapter obta
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   ├── SECURITY_MODEL.md
+│   ├── POLICY_MODEL.md
 │   ├── ROADMAP.md
 │   └── PLATFORM_ADAPTERS.md
 ├── examples/
