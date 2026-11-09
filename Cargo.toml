@@ -1,0 +1,19 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/erebus-types",
+    "crates/erebus-policy",
+    "crates/erebus-engine",
+    "crates/erebus-adapter-api",
+]
+
+[workspace.package]
+version = "0.1.0"
+edition = "2021"
+license = "Apache-2.0"
+rust-version = "1.75"
+repository = "https://github.com/jadhavdurvesh/erebus"
+
+[workspace.dependencies]
+thiserror = "1"
+serde = { version = "1", features = ["derive"] }
