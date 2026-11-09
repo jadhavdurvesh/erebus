@@ -26,7 +26,7 @@ impl PartialOrd for Endpoint {
     }
 }
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct FlowKey {
     protocol: TransportProtocol,
     interface: Option<String>,
@@ -312,7 +312,7 @@ impl ConnectionTracker {
             }
 
             connection.last_seen_ms = now_ms;
-            connection.expires_at_ms = now_ms.saturating_add(self.timeout_for(connection.state));
+            connection.expires_at_ms = now_ms.saturating_add(timeout_for(self.config, connection.state));
 
             return Ok(observation(connection, direction, false));
         }
@@ -350,7 +350,7 @@ impl ConnectionTracker {
             state,
             created_at_ms: now_ms,
             last_seen_ms: now_ms,
-            expires_at_ms: now_ms.saturating_add(self.timeout_for(state)),
+            expires_at_ms: now_ms.saturating_add(timeout_for(self.config, state)),
             initiator_fin: false,
             responder_fin: false,
         };
@@ -385,21 +385,18 @@ impl ConnectionTracker {
         Ok(())
     }
 
-    fn timeout_for(&self, state: ConnectionState) -> u64 {
-        match state {
-            ConnectionState::Tcp(TcpState::SynSent | TcpState::SynReceived) => {
-                self.config.tcp_syn_timeout_ms
-            }
-            ConnectionState::Tcp(TcpState::Established | TcpState::Midstream) => {
-                self.config.tcp_established_timeout_ms
-            }
-            ConnectionState::Tcp(TcpState::FinWait | TcpState::TimeWait) => {
-                self.config.tcp_closing_timeout_ms
-            }
-            ConnectionState::Tcp(TcpState::Reset) => self.config.tcp_reset_timeout_ms,
-            ConnectionState::Udp(_) => self.config.udp_timeout_ms,
-            ConnectionState::Other => self.config.other_timeout_ms,
+}
+
+fn timeout_for(config: TrackerConfig, state: ConnectionState) -> u64 {
+    match state {
+        ConnectionState::Tcp(TcpState::SynSent | TcpState::SynReceived) => config.tcp_syn_timeout_ms,
+        ConnectionState::Tcp(TcpState::Established | TcpState::Midstream) => {
+            config.tcp_established_timeout_ms
         }
+        ConnectionState::Tcp(TcpState::FinWait | TcpState::TimeWait) => config.tcp_closing_timeout_ms,
+        ConnectionState::Tcp(TcpState::Reset) => config.tcp_reset_timeout_ms,
+        ConnectionState::Udp(_) => config.udp_timeout_ms,
+        ConnectionState::Other => config.other_timeout_ms,
     }
 }
 
@@ -498,7 +495,7 @@ mod tests {
         )
     }
 
-    fn tracker(max_entries: usize) -> ConnectionTracker {
+    fn new_tracker(max_entries: usize) -> ConnectionTracker {
         ConnectionTracker::new(TrackerConfig {
             max_entries,
             tcp_syn_timeout_ms: 100,
@@ -513,7 +510,7 @@ mod tests {
 
     #[test]
     fn tcp_handshake_tracks_initiator_and_responder() {
-        let mut tracker = tracker(8);
+        let mut tracker = new_tracker(8);
         let first = tracker
             .observe(&tcp_packet(50_000, 443), Some(TcpFlags::syn()), 10)
             .unwrap();
@@ -536,7 +533,7 @@ mod tests {
 
     #[test]
     fn midstream_tcp_is_not_assumed_established() {
-        let mut tracker = tracker(8);
+        let mut tracker = new_tracker(8);
         let flow = tracker
             .observe(&tcp_packet(50_000, 443), Some(TcpFlags::ack()), 1)
             .unwrap();
@@ -546,7 +543,7 @@ mod tests {
 
     #[test]
     fn reset_and_fin_update_connection_state() {
-        let mut tracker = tracker(8);
+        let mut tracker = new_tracker(8);
         tracker
             .observe(&tcp_packet(50_000, 443), Some(TcpFlags::syn()), 1)
             .unwrap();
@@ -557,7 +554,7 @@ mod tests {
         assert_eq!(reset.state, ConnectionState::Tcp(TcpState::Reset));
         assert_eq!(reset.expires_at_ms, 12);
 
-        let mut other_tracker = tracker(8);
+        let mut other_tracker = new_tracker(8);
         other_tracker
             .observe(&tcp_packet(50_000, 443), Some(TcpFlags::syn()), 10)
             .unwrap();
@@ -573,7 +570,7 @@ mod tests {
 
     #[test]
     fn udp_flow_becomes_replied_after_reverse_packet() {
-        let mut tracker = tracker(8);
+        let mut tracker = new_tracker(8);
         let outbound = packet(
             TransportProtocol::Udp,
             "192.0.2.10",
@@ -599,7 +596,7 @@ mod tests {
 
     #[test]
     fn tracker_expires_entries_and_reuses_capacity() {
-        let mut tracker = tracker(1);
+        let mut tracker = new_tracker(1);
         tracker
             .observe(&tcp_packet(50_000, 443), Some(TcpFlags::syn()), 0)
             .unwrap();
@@ -619,7 +616,7 @@ mod tests {
 
     #[test]
     fn tracker_rejects_missing_ports_flags_and_invalid_flags() {
-        let mut tracker = tracker(8);
+        let mut tracker = new_tracker(8);
         let no_ports = packet(
             TransportProtocol::Tcp,
             "192.0.2.1",
@@ -652,7 +649,7 @@ mod tests {
 
     #[test]
     fn tracker_rejects_clock_regression() {
-        let mut tracker = tracker(8);
+        let mut tracker = new_tracker(8);
         tracker
             .observe(&tcp_packet(50_000, 443), Some(TcpFlags::syn()), 10)
             .unwrap();
@@ -668,7 +665,7 @@ mod tests {
 
     #[test]
     fn tracker_distinguishes_protocols_and_address_families() {
-        let mut tracker = tracker(8);
+        let mut tracker = new_tracker(8);
         let udp = packet(
             TransportProtocol::Udp,
             "192.0.2.1",
