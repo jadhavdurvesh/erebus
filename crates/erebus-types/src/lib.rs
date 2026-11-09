@@ -140,7 +140,7 @@ impl fmt::Display for IpNetwork {
 pub struct FlowId(pub u64);
 
 /// Network transport protocol relevant to a policy decision.
-#[derive(Clone, Copy, Debug, Eq, PartialEq, Serialize, Deserialize)]
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq, Serialize, Deserialize)]
 pub enum TransportProtocol {
     Tcp,
     Udp,
