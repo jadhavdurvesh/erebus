@@ -303,11 +303,10 @@ impl ConnectionTracker {
                     let flags = tcp_flags.expect("TCP flags validated above");
                     update_tcp(connection, direction, flags);
                 }
-                TransportProtocol::Udp => {
-                    if direction == PacketDirection::Responder {
-                        connection.state = ConnectionState::Udp(UdpState::Replied);
-                    }
+                TransportProtocol::Udp if direction == PacketDirection::Responder => {
+                    connection.state = ConnectionState::Udp(UdpState::Replied);
                 }
+                TransportProtocol::Udp => {}
                 _ => {}
             }
 
