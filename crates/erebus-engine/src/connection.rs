@@ -4,7 +4,7 @@
 //! TCP checksums, inspect sequence numbers, or enforce verdicts. Adapters must
 //! provide validated metadata and TCP flags from the native networking layer.
 
-use erebus_types::{FlowId, IpAddr, TrafficDescriptor, TransportProtocol};
+use erebus_types::{FlowId, TrafficDescriptor, TransportProtocol};
 use std::{
     cmp::Ordering,
     collections::HashMap,
@@ -205,7 +205,6 @@ pub enum TrackerError {
 struct Connection {
     flow_id: FlowId,
     initiator: Endpoint,
-    responder: Endpoint,
     state: ConnectionState,
     created_at_ms: u64,
     last_seen_ms: u64,
@@ -347,7 +346,6 @@ impl ConnectionTracker {
         let connection = Connection {
             flow_id,
             initiator: source,
-            responder: destination,
             state,
             created_at_ms: now_ms,
             last_seen_ms: now_ms,
@@ -463,7 +461,6 @@ fn update_tcp(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::net::{IpAddr, Ipv4Addr};
 
     fn packet(
         protocol: TransportProtocol,
@@ -695,6 +692,5 @@ mod tests {
 
         assert_ne!(udp_flow.flow_id, other_flow.flow_id);
         assert_eq!(tracker.len(), 2);
-        assert_eq!(IpAddr::V4(Ipv4Addr::LOCALHOST), "127.0.0.1".parse().unwrap());
     }
 }
