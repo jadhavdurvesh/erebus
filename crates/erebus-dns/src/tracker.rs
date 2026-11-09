@@ -116,6 +116,7 @@ impl DnsRequestTracker {
         self.config.max_outstanding
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn observe_query(
         &mut self,
         client: IpAddr,
@@ -166,6 +167,7 @@ impl DnsRequestTracker {
         Ok(observation)
     }
 
+    #[allow(clippy::too_many_arguments)]
     pub fn observe_response(
         &mut self,
         resolver: IpAddr,
