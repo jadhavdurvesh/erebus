@@ -4,7 +4,7 @@
 
 EREBUS is an independently designed firewall and network-security platform. Its first integration target is **Sand OS**. Linux and Windows support will be added through native platform adapters.
 
-> Project status: **Portable policy foundation**. Configuration validation and in-memory transactional reload are implemented. Live packet capture and OS enforcement are not implemented yet.
+> Project status: **Portable security-engine foundation**. Policy evaluation, versioned TOML validation, transactional in-memory reload, bounded connection-tracking, structured in-memory events, and token-bucket rate-limiting primitives are implemented. Live packet capture and OS enforcement are not implemented yet.
 
 ## Design principles
 
@@ -14,9 +14,10 @@ EREBUS is an independently designed firewall and network-security platform. Its 
 - **Fail safely:** adapter failures must not silently turn a deny decision into an allow decision.
 - **Least privilege:** privileged enforcement is isolated from configuration, UI, and untrusted input parsing.
 - **Observable decisions:** security decisions should be explainable and auditable.
+- **Bounded state:** connection tables, event journals, and keyed rate-limit tables have explicit capacities.
 - **Portable core:** platform-specific APIs stay outside the core crates.
 
-## Planned architecture
+## Architecture
 
 ```text
                 Applications / Administrators
@@ -26,6 +27,9 @@ EREBUS is an independently designed firewall and network-security platform. Its 
                             |
                     EREBUS Policy Core
           (rules, matching, connection context, verdicts)
+                            |
+              Security State and Observability
+       (connection tracking, event journal, rate limiting)
                             |
                    Platform Adapter API
                /             |             \
@@ -37,7 +41,9 @@ EREBUS is an independently designed firewall and network-security platform. Its 
 
 The core does not directly modify packets or call platform APIs. An adapter obtains a normalized packet/flow description, asks the core for a verdict, and applies that verdict using the platform's supported enforcement interface.
 
-The policy core supports ordered rules using direction, protocol, IPv4/IPv6 CIDR source and destination prefixes, source/destination ports, and exact interface names. The `erebus-config` crate validates versioned TOML documents and converts them into policy sets. The engine supports transactional in-memory policy replacement: invalid updates do not replace the active snapshot. See [docs/POLICY_MODEL.md](docs/POLICY_MODEL.md).
+The policy core supports ordered rules using direction, protocol, IPv4/IPv6 CIDR source and destination prefixes, source/destination ports, and exact interface names. The `erebus-config` crate validates versioned TOML documents and converts them into policy sets. The engine supports transactional in-memory policy replacement: invalid updates do not replace the active snapshot.
+
+The engine also exposes bounded TCP/UDP connection tracking, a metadata-only in-memory security event journal, and token-bucket rate-limit primitives. These components are independently tested and are not yet connected to live platform packet callbacks.
 
 ## Repository layout
 
@@ -48,13 +54,16 @@ The policy core supports ordered rules using direction, protocol, IPv4/IPv6 CIDR
 │   ├── erebus-types/       # Shared identifiers and normalized traffic metadata
 │   ├── erebus-policy/      # Deterministic policy evaluation
 │   ├── erebus-config/      # Versioned TOML schema and validation
-│   ├── erebus-engine/      # Portable decisions and atomic policy snapshots
+│   ├── erebus-engine/      # Policy snapshots and security-state primitives
 │   ├── erebus-adapter-api/ # Contract implemented by OS adapters
 │   └── erebus-cli/         # Offline validate/export tooling
 ├── docs/
 │   ├── ARCHITECTURE.md
 │   ├── SECURITY_MODEL.md
 │   ├── POLICY_MODEL.md
+│   ├── CONNECTION_TRACKING.md
+│   ├── SECURITY_EVENTS.md
+│   ├── RATE_LIMITING.md
 │   ├── ROADMAP.md
 │   └── PLATFORM_ADAPTERS.md
 ├── examples/
@@ -73,7 +82,7 @@ cargo fmt --all -- --check
 cargo test --workspace
 cargo clippy --workspace --all-targets -- -D warnings
 
-# Validate the example policy without applying it
+# Validate a policy without changing host networking
 cargo run -p erebus-cli -- validate examples/policy.toml
 
 # Print normalized TOML
@@ -84,7 +93,7 @@ The CLI also accepts `--output path` with `export` to write canonical TOML to a 
 
 ## Safety notice
 
-EREBUS is experimental software. Configuration validation and in-memory policy decisions are not a functioning firewall. Do not rely on EREBUS to protect a production machine or expose network services. Platform enforcement will be introduced only with dedicated tests and explicit recovery documentation.
+EREBUS is experimental software. Its portable decision and state-management primitives are not a functioning firewall. The connection tracker uses simplified TCP state observations and is not a replacement for a kernel TCP stack. The event journal is volatile in-memory storage, not a durable audit log. Do not rely on EREBUS to protect a production machine or expose network services.
 
 ## Roadmap
 
