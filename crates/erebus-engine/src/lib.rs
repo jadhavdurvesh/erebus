@@ -2,6 +2,25 @@
 //!
 //! Policy reload is transactional: parse and validate a replacement completely
 //! before atomically publishing the new immutable policy snapshot.
+//!
+//! The companion modules provide bounded connection tracking, structured
+//! in-memory security events, and token-bucket rate-limiting primitives. None
+//! of these modules performs operating-system packet capture or enforcement.
+
+pub mod connection;
+pub mod events;
+pub mod rate_limit;
+
+pub use connection::{
+    ConnectionObservation, ConnectionState, ConnectionTracker, PacketDirection, TcpFlags, TcpState,
+    TrackerConfig, TrackerError, UdpState,
+};
+pub use events::{
+    EventJournal, EventJournalError, RecordOutcome, SecurityEvent, SecurityEventKind,
+};
+pub use rate_limit::{
+    KeyedRateLimiter, KeyedRateLimiterConfig, RateLimitError, TokenBucket, TokenBucketConfig,
+};
 
 use erebus_config::{ConfigError, PolicyDocument};
 use erebus_policy::PolicySet;
