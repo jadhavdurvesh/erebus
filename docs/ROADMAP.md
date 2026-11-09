@@ -13,9 +13,11 @@ This roadmap describes intended work; listed items are not claims of completed f
 
 ## Milestone 1 — Portable core hardening and adapter contract
 
-- [ ] Expand policy matching tests (address prefixes, interfaces, protocol edge cases).
+- [x] Add IPv4/IPv6 CIDR prefix representation and containment tests.
+- [x] Match source/destination prefixes, ports, direction, protocol, and exact interface names.
+- [x] Reject empty interface selectors and duplicate/empty rule IDs.
+- [x] Add mock adapter lifecycle, verdict-forwarding, and enforcement-failure tests.
 - [ ] Define a versioned, validated policy configuration schema.
-- [ ] Add adapter contract conformance tests with a mock adapter.
 - [ ] Define structured decision and enforcement-failure events.
 - [ ] Specify bounded queues, policy update semantics, and shutdown behaviour.
 
