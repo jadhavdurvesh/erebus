@@ -33,6 +33,7 @@ impl PartialOrd for Endpoint {
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct FlowKey {
     protocol: TransportProtocol,
+    interface: Option<String>,
     first: Endpoint,
     second: Endpoint,
 }
@@ -42,16 +43,19 @@ impl FlowKey {
         protocol: TransportProtocol,
         source: Endpoint,
         destination: Endpoint,
+        interface: Option<String>,
     ) -> Self {
         if source <= destination {
             Self {
                 protocol,
+                interface,
                 first: source,
                 second: destination,
             }
         } else {
             Self {
                 protocol,
+                interface,
                 first: destination,
                 second: source,
             }
@@ -287,7 +291,12 @@ impl ConnectionTracker {
         }
 
         self.expire_internal(now_ms);
-        let key = FlowKey::new(traffic.protocol, source, destination);
+        let key = FlowKey::new(
+            traffic.protocol,
+            source,
+            destination,
+            traffic.interface.clone(),
+        );
 
         if let Some(connection) = self.entries.get_mut(&key) {
             let direction = if source == connection.initiator {
