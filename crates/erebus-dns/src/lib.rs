@@ -10,12 +10,10 @@ pub mod tracker;
 pub mod wire;
 
 pub use cache::{CacheInsertOutcome, DnsCache, DnsCacheConfig, DnsCacheError};
-pub use config::{
-    DnsConfigError, DnsPolicyDocument, CURRENT_DNS_SCHEMA_VERSION,
-};
+pub use config::{DnsConfigError, DnsPolicyDocument, CURRENT_DNS_SCHEMA_VERSION};
 pub use policy::{
-    normalize_domain, DomainAction, DomainDecision, DomainMatchKind, DomainPattern,
-    DomainPolicy, DomainPolicyError, DomainRule,
+    normalize_domain, DomainAction, DomainDecision, DomainMatchKind, DomainPattern, DomainPolicy,
+    DomainPolicyError, DomainRule,
 };
 pub use tracker::{
     DnsRequestObservation, DnsRequestTracker, DnsResponseObservation, DnsTrackerConfig,
@@ -41,7 +39,10 @@ mod tests {
         )
         .unwrap();
 
-        assert_eq!(policy.evaluate("host.test.example").unwrap().action, DomainAction::Block);
+        assert_eq!(
+            policy.evaluate("host.test.example").unwrap().action,
+            DomainAction::Block
+        );
         assert_eq!(CURRENT_DNS_SCHEMA_VERSION, 1);
     }
 }
