@@ -32,10 +32,7 @@ pub enum RateLimitError {
     #[error("rate limiter key table is full ({capacity} keys); active keys are not evicted")]
     KeyCapacityReached { capacity: usize },
     #[error("timestamp moved backwards: previous {previous_ms} ms, received {received_ms} ms")]
-    ClockWentBackwards {
-        previous_ms: u64,
-        received_ms: u64,
-    },
+    ClockWentBackwards { previous_ms: u64, received_ms: u64 },
 }
 
 #[derive(Clone, Debug)]
@@ -67,11 +64,7 @@ impl TokenBucket {
 
     /// Attempt to spend tokens. Returns false when insufficient tokens remain.
     /// Time must be monotonic milliseconds.
-    pub fn try_acquire(
-        &mut self,
-        now_ms: u64,
-        cost: u32,
-    ) -> Result<bool, RateLimitError> {
+    pub fn try_acquire(&mut self, now_ms: u64, cost: u32) -> Result<bool, RateLimitError> {
         validate_cost(cost, self.config.capacity)?;
         self.refill(now_ms)?;
 
@@ -187,12 +180,7 @@ where
         self.check_cost(key, now_ms, 1)
     }
 
-    pub fn check_cost(
-        &mut self,
-        key: K,
-        now_ms: u64,
-        cost: u32,
-    ) -> Result<bool, RateLimitError> {
+    pub fn check_cost(&mut self, key: K, now_ms: u64, cost: u32) -> Result<bool, RateLimitError> {
         validate_cost(cost, self.config.bucket.capacity)?;
         self.check_time(now_ms)?;
         self.last_observed_ms = Some(now_ms);
