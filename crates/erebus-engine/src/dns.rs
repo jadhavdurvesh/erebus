@@ -305,8 +305,8 @@ pub struct DnsExpiryReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use erebus_dns::{DnsHeader, DnsQuestion, DnsRecord, DnsRecordData};
     use crate::rate_limit::TokenBucketConfig;
+    use erebus_dns::{DnsHeader, DnsQuestion, DnsRecord, DnsRecordData};
     use std::net::{IpAddr, Ipv4Addr};
 
     const POLICY: &str = r#"
