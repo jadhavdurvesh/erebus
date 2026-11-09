@@ -5,11 +5,7 @@
 //! provide validated metadata and TCP flags from the native networking layer.
 
 use erebus_types::{FlowId, TrafficDescriptor, TransportProtocol};
-use std::{
-    cmp::Ordering,
-    collections::HashMap,
-    net::IpAddr as StdIpAddr,
-};
+use std::{cmp::Ordering, collections::HashMap, net::IpAddr as StdIpAddr};
 use thiserror::Error;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
@@ -195,10 +191,7 @@ pub enum TrackerError {
     #[error("TCP flags contain an invalid SYN and FIN combination")]
     InvalidTcpFlags,
     #[error("timestamp moved backwards: previous {previous_ms} ms, received {received_ms} ms")]
-    ClockWentBackwards {
-        previous_ms: u64,
-        received_ms: u64,
-    },
+    ClockWentBackwards { previous_ms: u64, received_ms: u64 },
     #[error("connection tracker is full ({capacity} entries); no active flow was evicted")]
     CapacityReached { capacity: usize },
     #[error("flow identifier space is exhausted")]
@@ -319,8 +312,7 @@ impl ConnectionTracker {
             }
 
             connection.last_seen_ms = now_ms;
-            connection.expires_at_ms =
-                now_ms.saturating_add(self.timeout_for(connection.state));
+            connection.expires_at_ms = now_ms.saturating_add(self.timeout_for(connection.state));
 
             return Ok(observation(connection, direction, false));
         }
@@ -427,11 +419,7 @@ fn observation(
     }
 }
 
-fn update_tcp(
-    connection: &mut Connection,
-    direction: PacketDirection,
-    flags: TcpFlags,
-) {
+fn update_tcp(connection: &mut Connection, direction: PacketDirection, flags: TcpFlags) {
     if flags.rst {
         connection.state = ConnectionState::Tcp(TcpState::Reset);
         return;
