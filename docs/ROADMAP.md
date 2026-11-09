@@ -72,7 +72,10 @@ This roadmap describes intended work; listed items are not claims of completed f
 - [x] Add bounded TCP/UDP connection tracking with state transitions, timeouts, interface-aware flow keys, and capacity handling.
 - [x] Add token-bucket and bounded per-key rate-limiting primitives.
 - [ ] Integrate trackers and rate limits with native adapter traffic callbacks.
-- [ ] DNS policy integration.
+- [x] Add independent DNS wire parser, versioned domain policy, request correlation, and positive-response cache.
+- [x] Integrate DNS decisions, per-client rate limiting, response correlation, cache admission, and audit events into the portable engine.
+- [x] Add offline DNS policy validation and canonical export CLI commands.
+- [ ] Connect DNS service to native adapter traffic callbacks.
 - [ ] Threat intelligence feeds with provenance and expiry.
 - [ ] Anomaly detection as an advisory layer, not an unchecked authority.
 - [ ] Optional management dashboard.
