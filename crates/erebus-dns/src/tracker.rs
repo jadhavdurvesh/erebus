@@ -289,7 +289,15 @@ mod tests {
             .observe_query(client, 53000, resolver, 53, DnsTransport::Udp, &query, 10)
             .unwrap();
         let matched = tracker
-            .observe_response(resolver, 53, client, 53000, DnsTransport::Udp, &response, 35)
+            .observe_response(
+                resolver,
+                53,
+                client,
+                53000,
+                DnsTransport::Udp,
+                &response,
+                35,
+            )
             .unwrap();
 
         assert_eq!(matched.transaction_id, 0x1234);
@@ -303,29 +311,49 @@ mod tests {
         let mut tracker = new_tracker();
         tracker
             .observe_query(
-                client, 53000, resolver, 53, DnsTransport::Udp,
-                &message(7, false, "example.com"), 1,
+                client,
+                53000,
+                resolver,
+                53,
+                DnsTransport::Udp,
+                &message(7, false, "example.com"),
+                1,
             )
             .unwrap();
 
         assert_eq!(
             tracker.observe_response(
-                resolver, 53, client, 53001, DnsTransport::Udp,
-                &message(7, true, "example.com"), 2,
+                resolver,
+                53,
+                client,
+                53001,
+                DnsTransport::Udp,
+                &message(7, true, "example.com"),
+                2,
             ),
             Err(DnsTrackerError::UnknownResponse)
         );
         assert_eq!(
             tracker.observe_response(
-                resolver, 53, client, 53000, DnsTransport::Tcp,
-                &message(7, true, "example.com"), 2,
+                resolver,
+                53,
+                client,
+                53000,
+                DnsTransport::Tcp,
+                &message(7, true, "example.com"),
+                2,
             ),
             Err(DnsTrackerError::UnknownResponse)
         );
         assert_eq!(
             tracker.observe_response(
-                resolver, 53, client, 53000, DnsTransport::Udp,
-                &message(7, true, "other.example"), 2,
+                resolver,
+                53,
+                client,
+                53000,
+                DnsTransport::Udp,
+                &message(7, true, "other.example"),
+                2,
             ),
             Err(DnsTrackerError::UnknownResponse)
         );
@@ -337,20 +365,40 @@ mod tests {
         let mut tracker = DnsRequestTracker::new(DnsTrackerConfig {
             max_outstanding: 2,
             request_timeout_ms: 100,
-        }).unwrap();
-        tracker.observe_query(
-            client, 53000, resolver, 53, DnsTransport::Udp,
-            &message(1, false, "one.example"), 0,
-        ).unwrap();
-        tracker.observe_query(
-            client, 53001, resolver, 53, DnsTransport::Udp,
-            &message(2, false, "two.example"), 0,
-        ).unwrap();
+        })
+        .unwrap();
+        tracker
+            .observe_query(
+                client,
+                53000,
+                resolver,
+                53,
+                DnsTransport::Udp,
+                &message(1, false, "one.example"),
+                0,
+            )
+            .unwrap();
+        tracker
+            .observe_query(
+                client,
+                53001,
+                resolver,
+                53,
+                DnsTransport::Udp,
+                &message(2, false, "two.example"),
+                0,
+            )
+            .unwrap();
 
         assert_eq!(
             tracker.observe_query(
-                client, 53002, resolver, 53, DnsTransport::Udp,
-                &message(3, false, "three.example"), 1,
+                client,
+                53002,
+                resolver,
+                53,
+                DnsTransport::Udp,
+                &message(3, false, "three.example"),
+                1,
             ),
             Err(DnsTrackerError::CapacityReached { capacity: 2 })
         );
@@ -363,9 +411,9 @@ mod tests {
         let (client, resolver) = endpoints();
         let mut tracker = new_tracker();
         let query = message(5, false, "example.com");
-        tracker.observe_query(
-            client, 53000, resolver, 53, DnsTransport::Udp, &query, 10,
-        ).unwrap();
+        tracker
+            .observe_query(client, 53000, resolver, 53, DnsTransport::Udp, &query, 10)
+            .unwrap();
 
         assert_eq!(
             tracker.observe_query(
@@ -375,15 +423,18 @@ mod tests {
         );
         assert_eq!(
             tracker.observe_query(
-                client, 53001, resolver, 53, DnsTransport::Udp,
-                &message(5, true, "example.com"), 12,
+                client,
+                53001,
+                resolver,
+                53,
+                DnsTransport::Udp,
+                &message(5, true, "example.com"),
+                12,
             ),
             Err(DnsTrackerError::ExpectedQuery)
         );
         assert_eq!(
-            tracker.observe_query(
-                client, 53000, resolver, 53, DnsTransport::Udp, &query, 9,
-            ),
+            tracker.observe_query(client, 53000, resolver, 53, DnsTransport::Udp, &query, 9,),
             Err(DnsTrackerError::ClockWentBackwards {
                 previous_ms: 11,
                 received_ms: 9
