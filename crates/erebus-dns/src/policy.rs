@@ -172,6 +172,8 @@ pub fn normalize_domain(domain: &str) -> Result<String, DomainPolicyError> {
     for label in domain.split('.') {
         if label.is_empty()
             || label.len() > 63
+            || label.starts_with('-')
+            || label.ends_with('-')
             || !label
                 .bytes()
                 .all(|byte| byte.is_ascii_alphanumeric() || byte == b'-' || byte == b'_')
@@ -251,7 +253,7 @@ mod tests {
     #[test]
     fn rejects_bad_names_and_duplicate_rule_ids() {
         assert_eq!(normalize_domain("bad..example"), Err(DomainPolicyError::InvalidDomain));
-        assert_eq!(normalize_domain("-bad.example"), Ok("-bad.example".to_owned()));
+        assert_eq!(normalize_domain("-bad.example"), Err(DomainPolicyError::InvalidDomain));
 
         let duplicate = rule("same", "example.com", DomainMatchKind::Exact, DomainAction::Block);
         assert_eq!(
