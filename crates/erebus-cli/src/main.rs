@@ -98,7 +98,10 @@ fn run(arguments: Arguments) -> Result<(), String> {
             if let Some(output) = output {
                 fs::write(&output, canonical)
                     .map_err(|error| format!("cannot write {}: {error}", output.display()))?;
-                eprintln!("Wrote validated canonical DNS policy to {}.", output.display());
+                eprintln!(
+                    "Wrote validated canonical DNS policy to {}.",
+                    output.display()
+                );
             } else {
                 print!("{canonical}");
             }
