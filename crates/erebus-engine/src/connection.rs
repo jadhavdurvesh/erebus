@@ -312,7 +312,8 @@ impl ConnectionTracker {
             }
 
             connection.last_seen_ms = now_ms;
-            connection.expires_at_ms = now_ms.saturating_add(timeout_for(self.config, connection.state));
+            connection.expires_at_ms =
+                now_ms.saturating_add(timeout_for(self.config, connection.state));
 
             return Ok(observation(connection, direction, false));
         }
@@ -384,16 +385,19 @@ impl ConnectionTracker {
         }
         Ok(())
     }
-
 }
 
 fn timeout_for(config: TrackerConfig, state: ConnectionState) -> u64 {
     match state {
-        ConnectionState::Tcp(TcpState::SynSent | TcpState::SynReceived) => config.tcp_syn_timeout_ms,
+        ConnectionState::Tcp(TcpState::SynSent | TcpState::SynReceived) => {
+            config.tcp_syn_timeout_ms
+        }
         ConnectionState::Tcp(TcpState::Established | TcpState::Midstream) => {
             config.tcp_established_timeout_ms
         }
-        ConnectionState::Tcp(TcpState::FinWait | TcpState::TimeWait) => config.tcp_closing_timeout_ms,
+        ConnectionState::Tcp(TcpState::FinWait | TcpState::TimeWait) => {
+            config.tcp_closing_timeout_ms
+        }
         ConnectionState::Tcp(TcpState::Reset) => config.tcp_reset_timeout_ms,
         ConnectionState::Udp(_) => config.udp_timeout_ms,
         ConnectionState::Other => config.other_timeout_ms,
