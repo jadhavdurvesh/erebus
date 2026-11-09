@@ -4,19 +4,16 @@
 //! receive packets, forward queries, or install DNS/network interception.
 
 use erebus_dns::{
-    normalize_domain, CacheInsertOutcome, DnsCache, DnsCacheConfig, DnsCacheError,
+    normalize_domain, CacheInsertOutcome, DnsCache, DnsCacheConfig, DnsCacheError, DnsMessage,
     DnsPolicyDocument, DnsRequestObservation, DnsRequestTracker, DnsResponseObservation,
     DnsTrackerConfig, DnsTrackerError, DnsTransport, DomainAction, DomainPolicyError,
-    DnsMessage,
 };
 use std::net::IpAddr;
 use thiserror::Error;
 
 use crate::{
     events::{EventJournal, EventJournalError, SecurityEventKind},
-    rate_limit::{
-        KeyedRateLimiter, KeyedRateLimiterConfig, RateLimitError,
-    },
+    rate_limit::{KeyedRateLimiter, KeyedRateLimiterConfig, RateLimitError},
 };
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -114,10 +111,7 @@ impl DnsSecurityService {
         })
     }
 
-    pub fn from_toml(
-        input: &str,
-        config: DnsSecurityConfig,
-    ) -> Result<Self, DnsSecurityError> {
+    pub fn from_toml(input: &str, config: DnsSecurityConfig) -> Result<Self, DnsSecurityError> {
         let document = DnsPolicyDocument::parse(input)?;
         Self::new(&document, config)
     }
@@ -135,7 +129,10 @@ impl DnsSecurityService {
         message: &DnsMessage,
         now_ms: u64,
     ) -> Result<DnsQueryInspection, DnsSecurityError> {
-        if message.is_response() || message.header.opcode() != 0 || message.single_question().is_none() {
+        if message.is_response()
+            || message.header.opcode() != 0
+            || message.single_question().is_none()
+        {
             return Err(DnsSecurityError::InvalidQuery);
         }
 
@@ -308,9 +305,7 @@ pub struct DnsExpiryReport {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use erebus_dns::{
-        DnsHeader, DnsQuestion, DnsRecord, DnsRecordData,
-    };
+    use erebus_dns::{DnsHeader, DnsQuestion, DnsRecord, DnsRecordData};
     use crate::rate_limit::TokenBucketConfig;
     use std::net::{IpAddr, Ipv4Addr};
 
@@ -408,10 +403,17 @@ action = "block"
     #[test]
     fn blocks_domain_and_does_not_track_it() {
         let mut service = service();
-        let result = service.inspect_query(
-            ip("192.0.2.10"), 53000, ip("192.0.2.53"), 53,
-            DnsTransport::Udp, &query(1, "ads.tracker.example"), 1,
-        ).unwrap();
+        let result = service
+            .inspect_query(
+                ip("192.0.2.10"),
+                53000,
+                ip("192.0.2.53"),
+                53,
+                DnsTransport::Udp,
+                &query(1, "ads.tracker.example"),
+                1,
+            )
+            .unwrap();
 
         assert_eq!(result.status, DnsQueryStatus::Blocked);
         assert_eq!(result.matched_rule_id.as_deref(), Some("block-tracker"));
@@ -425,24 +427,41 @@ action = "block"
         let client = ip("192.0.2.10");
         let resolver = ip("192.0.2.53");
 
-        let query_result = service.inspect_query(
-            client, 53000, resolver, 53, DnsTransport::Udp,
-            &query(9, "www.example.com"), 100,
-        ).unwrap();
+        let query_result = service
+            .inspect_query(
+                client,
+                53000,
+                resolver,
+                53,
+                DnsTransport::Udp,
+                &query(9, "www.example.com"),
+                100,
+            )
+            .unwrap();
         assert_eq!(query_result.status, DnsQueryStatus::Allowed);
         assert!(query_result.request.is_some());
         assert_eq!(service.outstanding_requests(), 1);
 
-        let response_result = service.inspect_response(
-            resolver, 53, client, 53000, DnsTransport::Udp,
-            &response(9, "www.example.com"), 120,
-        ).unwrap();
+        let response_result = service
+            .inspect_response(
+                resolver,
+                53,
+                client,
+                53000,
+                DnsTransport::Udp,
+                &response(9, "www.example.com"),
+                120,
+            )
+            .unwrap();
         assert_eq!(response_result.response.latency_ms, 20);
         assert_eq!(response_result.cache_outcome, CacheInsertOutcome::Stored);
         assert_eq!(service.outstanding_requests(), 0);
         assert_eq!(service.cached_entries(), 1);
 
-        let cached = service.cached_response("WWW.EXAMPLE.COM.", 1, 1, 10, 130).unwrap().unwrap();
+        let cached = service
+            .cached_response("WWW.EXAMPLE.COM.", 1, 1, 10, 130)
+            .unwrap()
+            .unwrap();
         assert_eq!(cached.header.id, 10);
     }
 
@@ -452,21 +471,57 @@ action = "block"
         let client = ip("192.0.2.20");
         let resolver = ip("192.0.2.53");
 
-        assert_eq!(service.inspect_query(
-            client, 53000, resolver, 53, DnsTransport::Udp, &query(1, "one.example"), 0,
-        ).unwrap().status, DnsQueryStatus::Allowed);
-        assert_eq!(service.inspect_query(
-            client, 53001, resolver, 53, DnsTransport::Udp, &query(2, "two.example"), 0,
-        ).unwrap().status, DnsQueryStatus::Allowed);
-        assert_eq!(service.inspect_query(
-            client, 53002, resolver, 53, DnsTransport::Udp, &query(3, "three.example"), 0,
-        ).unwrap().status, DnsQueryStatus::RateLimited);
+        assert_eq!(
+            service
+                .inspect_query(
+                    client,
+                    53000,
+                    resolver,
+                    53,
+                    DnsTransport::Udp,
+                    &query(1, "one.example"),
+                    0,
+                )
+                .unwrap()
+                .status,
+            DnsQueryStatus::Allowed
+        );
+        assert_eq!(
+            service
+                .inspect_query(
+                    client,
+                    53001,
+                    resolver,
+                    53,
+                    DnsTransport::Udp,
+                    &query(2, "two.example"),
+                    0,
+                )
+                .unwrap()
+                .status,
+            DnsQueryStatus::Allowed
+        );
+        assert_eq!(
+            service
+                .inspect_query(
+                    client,
+                    53002,
+                    resolver,
+                    53,
+                    DnsTransport::Udp,
+                    &query(3, "three.example"),
+                    0,
+                )
+                .unwrap()
+                .status,
+            DnsQueryStatus::RateLimited
+        );
         assert_eq!(service.outstanding_requests(), 2);
 
-        assert!(service.events().iter().any(|event| matches!(
-            event.kind,
-            SecurityEventKind::DnsRateLimitExceeded { .. }
-        )));
+        assert!(service
+            .events()
+            .iter()
+            .any(|event| matches!(event.kind, SecurityEventKind::DnsRateLimitExceeded { .. })));
     }
 
     #[test]
@@ -477,8 +532,13 @@ action = "block"
 
         assert!(matches!(
             service.inspect_query(
-                ip("192.0.2.10"), 53000, ip("192.0.2.53"), 53,
-                DnsTransport::Udp, &message, 1,
+                ip("192.0.2.10"),
+                53000,
+                ip("192.0.2.53"),
+                53,
+                DnsTransport::Udp,
+                &message,
+                1,
             ),
             Err(DnsSecurityError::InvalidQuery)
         ));
