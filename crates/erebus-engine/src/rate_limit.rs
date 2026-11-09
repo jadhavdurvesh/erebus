@@ -198,23 +198,17 @@ where
         self.last_observed_ms = Some(now_ms);
         self.prune_idle_internal(now_ms);
 
-        if !self.buckets.contains_key(&key) {
-            if self.buckets.len() >= self.config.max_keys {
-                return Err(RateLimitError::KeyCapacityReached {
-                    capacity: self.config.max_keys,
-                });
-            }
-
-            self.buckets.insert(
-                key,
-                KeyedBucket {
-                    bucket: TokenBucket::new(self.config.bucket, now_ms)?,
-                    last_seen_ms: now_ms,
-                },
-            );
+        if !self.buckets.contains_key(&key) && self.buckets.len() >= self.config.max_keys {
+            return Err(RateLimitError::KeyCapacityReached {
+                capacity: self.config.max_keys,
+            });
         }
 
-        let entry = self.buckets.get_mut(&key).expect("key inserted or existed");
+        let entry = self.buckets.entry(key).or_insert_with(|| KeyedBucket {
+            bucket: TokenBucket::new(self.config.bucket, now_ms)
+                .expect("bucket configuration was validated at construction"),
+            last_seen_ms: now_ms,
+        });
         entry.last_seen_ms = now_ms;
         entry.bucket.try_acquire(now_ms, cost)
     }
