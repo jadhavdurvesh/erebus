@@ -62,6 +62,7 @@ pub enum EventJournalError {
 
 /// A bounded FIFO journal. On capacity pressure it retains the newest events
 /// and explicitly reports the sequence number of the event it evicted.
+#[derive(Debug)]
 pub struct EventJournal {
     capacity: usize,
     next_sequence: u64,
