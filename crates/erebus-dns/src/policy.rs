@@ -136,7 +136,7 @@ impl DomainPolicy {
             }
 
             let specificity = rule.pattern.specificity();
-            if best.is_none_or(|(_, previous)| specificity > previous) {
+            if best.map_or(true, |(_, previous)| specificity > previous) {
                 best = Some((index, specificity));
             }
         }
