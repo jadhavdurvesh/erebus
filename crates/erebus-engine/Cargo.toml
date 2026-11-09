@@ -8,3 +8,4 @@ rust-version.workspace = true
 [dependencies]
 erebus-types = { path = "../erebus-types" }
 erebus-policy = { path = "../erebus-policy" }
+erebus-config = { path = "../erebus-config" }
