@@ -5,6 +5,7 @@
 
 use clap::{Parser, Subcommand};
 use erebus_config::PolicyDocument;
+use erebus_dns::DnsPolicyDocument;
 use std::{fs, path::PathBuf, process::ExitCode};
 
 #[derive(Debug, Parser)]
@@ -24,6 +25,19 @@ enum Command {
     /// Emit canonical TOML for a validated policy.
     Export {
         /// Input policy file.
+        file: PathBuf,
+        /// Optional output path. Without this option, output goes to stdout.
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+    },
+    /// Parse and validate a DNS domain policy without applying it.
+    DnsValidate {
+        /// Path to a versioned EREBUS DNS TOML policy.
+        file: PathBuf,
+    },
+    /// Emit canonical TOML for a validated DNS domain policy.
+    DnsExport {
+        /// Input DNS policy file.
         file: PathBuf,
         /// Optional output path. Without this option, output goes to stdout.
         #[arg(short, long)]
@@ -61,6 +75,34 @@ fn run(arguments: Arguments) -> Result<(), String> {
                 print!("{canonical}");
             }
         }
+        Command::DnsValidate { file } => {
+            let source = fs::read_to_string(&file)
+                .map_err(|error| format!("cannot read {}: {error}", file.display()))?;
+            let document = DnsPolicyDocument::parse(&source)
+                .map_err(|error| format!("{}: {error}", file.display()))?;
+
+            println!("DNS policy is valid.");
+            println!("Schema version: {}", document.schema_version);
+            println!("Rules: {}", document.rules.len());
+            println!("Mode: offline validation only; no DNS settings were changed.");
+        }
+        Command::DnsExport { file, output } => {
+            let source = fs::read_to_string(&file)
+                .map_err(|error| format!("cannot read {}: {error}", file.display()))?;
+            let document = DnsPolicyDocument::parse(&source)
+                .map_err(|error| format!("{}: {error}", file.display()))?;
+            let canonical = document
+                .canonical_toml()
+                .map_err(|error| format!("cannot serialize DNS policy: {error}"))?;
+
+            if let Some(output) = output {
+                fs::write(&output, canonical)
+                    .map_err(|error| format!("cannot write {}: {error}", output.display()))?;
+                eprintln!("Wrote validated canonical DNS policy to {}.", output.display());
+            } else {
+                print!("{canonical}");
+            }
+        }
     }
 
     Ok(())
@@ -88,5 +130,7 @@ mod tests {
 
         assert!(output.contains("validate"));
         assert!(output.contains("export"));
+        assert!(output.contains("dns-validate"));
+        assert!(output.contains("dns-export"));
     }
 }
