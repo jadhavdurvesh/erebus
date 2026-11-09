@@ -13,8 +13,8 @@ pub mod events;
 pub mod rate_limit;
 
 pub use dns::{
-    DnsExpiryReport, DnsQueryInspection, DnsQueryStatus, DnsResponseInspection,
-    DnsSecurityConfig, DnsSecurityError, DnsSecurityService,
+    DnsExpiryReport, DnsQueryInspection, DnsQueryStatus, DnsResponseInspection, DnsSecurityConfig,
+    DnsSecurityError, DnsSecurityService,
 };
 
 pub use connection::{
