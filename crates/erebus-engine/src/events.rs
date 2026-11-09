@@ -51,11 +51,10 @@ pub struct RecordOutcome {
 pub enum EventJournalError {
     #[error("event journal capacity must be greater than zero")]
     ZeroCapacity,
-    #[error("event timestamp moved backwards: previous {previous_ms} ms, received {received_ms} ms")]
-    ClockWentBackwards {
-        previous_ms: u64,
-        received_ms: u64,
-    },
+    #[error(
+        "event timestamp moved backwards: previous {previous_ms} ms, received {received_ms} ms"
+    )]
+    ClockWentBackwards { previous_ms: u64, received_ms: u64 },
     #[error("event sequence space is exhausted")]
     SequenceExhausted,
 }
@@ -176,11 +175,7 @@ mod tests {
             )
             .unwrap();
         let second = journal
-            .record(
-                11,
-                Some(FlowId(9)),
-                SecurityEventKind::ConnectionCreated,
-            )
+            .record(11, Some(FlowId(9)), SecurityEventKind::ConnectionCreated)
             .unwrap();
 
         assert_eq!(first.sequence, 1);
@@ -202,15 +197,25 @@ mod tests {
             .unwrap();
 
         let outcome = journal
-            .record(3, None, SecurityEventKind::RateLimitExceeded {
-                scope: "host".into(),
-            })
+            .record(
+                3,
+                None,
+                SecurityEventKind::RateLimitExceeded {
+                    scope: "host".into(),
+                },
+            )
             .unwrap();
 
         assert_eq!(outcome.sequence, 3);
         assert_eq!(outcome.evicted_sequence, Some(1));
         let events = journal.snapshot();
-        assert_eq!(events.iter().map(|event| event.sequence).collect::<Vec<_>>(), vec![2, 3]);
+        assert_eq!(
+            events
+                .iter()
+                .map(|event| event.sequence)
+                .collect::<Vec<_>>(),
+            vec![2, 3]
+        );
     }
 
     #[test]
@@ -245,6 +250,9 @@ mod tests {
 
     #[test]
     fn zero_capacity_is_rejected() {
-        assert_eq!(EventJournal::new(0).unwrap_err(), EventJournalError::ZeroCapacity);
+        assert_eq!(
+            EventJournal::new(0).unwrap_err(),
+            EventJournalError::ZeroCapacity
+        );
     }
 }
