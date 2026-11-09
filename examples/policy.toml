@@ -1,6 +1,8 @@
-# Illustrative policy format only. The configuration loader is not implemented.
-# Rule order is significant; first matching rule wins.
-# CIDR address selectors support both IPv4 and IPv6 in the current policy core.
+# EREBUS policy schema version 1.
+# This file is validated/exported by the offline CLI; it is NOT applied to the host.
+# Rule order matters: the first matching rule wins.
+
+schema_version = 1
 
 [policy]
 default = "deny"
