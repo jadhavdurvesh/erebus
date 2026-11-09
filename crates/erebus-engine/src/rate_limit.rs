@@ -4,10 +4,7 @@
 //! and must be called by an adapter or service that owns the relevant traffic.
 
 use std::collections::HashMap;
-use std::{
-    hash::Hash,
-    net::IpAddr,
-};
+use std::{hash::Hash, net::IpAddr};
 use thiserror::Error;
 
 pub const MAX_RATE_LIMIT_KEY_BYTES: usize = 128;
