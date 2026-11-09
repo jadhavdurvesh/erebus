@@ -11,4 +11,5 @@ path = "src/main.rs"
 
 [dependencies]
 erebus-config = { path = "../erebus-config" }
+erebus-dns = { path = "../erebus-dns" }
 clap.workspace = true
