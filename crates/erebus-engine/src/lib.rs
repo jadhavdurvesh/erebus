@@ -124,10 +124,7 @@ impl Engine {
         self.policies.snapshot()
     }
 
-    pub fn decide(
-        &self,
-        traffic: &TrafficDescriptor,
-    ) -> Result<PolicyDecision, PolicyStoreError> {
+    pub fn decide(&self, traffic: &TrafficDescriptor) -> Result<PolicyDecision, PolicyStoreError> {
         Ok(self.policies.snapshot()?.decide(traffic))
     }
 }
