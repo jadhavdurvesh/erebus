@@ -163,10 +163,7 @@ impl DnsMessage {
         Self::parse_with_limits(bytes, ParseLimits::default())
     }
 
-    pub fn parse_with_limits(
-        bytes: &[u8],
-        limits: ParseLimits,
-    ) -> Result<Self, DnsParseError> {
+    pub fn parse_with_limits(bytes: &[u8], limits: ParseLimits) -> Result<Self, DnsParseError> {
         if bytes.len() < 12 {
             return Err(DnsParseError::TruncatedHeader);
         }
@@ -189,7 +186,8 @@ impl DnsMessage {
         let ar = usize::from(header.additional_count);
 
         if qd > limits.max_questions
-            || an.checked_add(ns)
+            || an
+                .checked_add(ns)
                 .and_then(|count| count.checked_add(ar))
                 .map_or(true, |count| count > limits.max_records)
         {
@@ -362,11 +360,7 @@ fn parse_rdata(
 
 /// Read a possibly compressed DNS name and advance cursor by the number of
 /// bytes consumed at the original location (not the pointer target).
-fn read_name(
-    bytes: &[u8],
-    cursor: &mut usize,
-    max_jumps: usize,
-) -> Result<String, DnsParseError> {
+fn read_name(bytes: &[u8], cursor: &mut usize, max_jumps: usize) -> Result<String, DnsParseError> {
     let mut position = *cursor;
     let mut original_end = None;
     let mut labels = Vec::new();
@@ -424,11 +418,14 @@ fn read_name(
                     .ok_or(DnsParseError::NameTooLong)?;
 
                 let label = &bytes[position..end];
-                if label.iter().any(|byte| !(0x21..=0x7e).contains(byte) || *byte == b'.') {
+                if label
+                    .iter()
+                    .any(|byte| !(0x21..=0x7e).contains(byte) || *byte == b'.')
+                {
                     return Err(DnsParseError::NonAsciiLabel(position));
                 }
-                let text = std::str::from_utf8(label)
-                    .map_err(|_| DnsParseError::InvalidDomainName)?;
+                let text =
+                    std::str::from_utf8(label).map_err(|_| DnsParseError::InvalidDomainName)?;
                 labels.push(text.to_ascii_lowercase());
                 position = end;
             }
@@ -462,9 +459,7 @@ mod tests {
             0x00, 0x00, 0x00, 0x00, // NSCOUNT, ARCOUNT
         ];
         packet.extend_from_slice(&[
-            7, b'E', b'x', b'A', b'M', b'P', b'L', b'E',
-            3, b'C', b'O', b'M', 0,
-            0, 1, 0, 1,
+            7, b'E', b'x', b'A', b'M', b'P', b'L', b'E', 3, b'C', b'O', b'M', 0, 0, 1, 0, 1,
         ]);
         packet
     }
@@ -504,7 +499,10 @@ mod tests {
 
     #[test]
     fn rejects_truncated_and_over_limit_packets() {
-        assert_eq!(DnsMessage::parse(&[0; 11]), Err(DnsParseError::TruncatedHeader));
+        assert_eq!(
+            DnsMessage::parse(&[0; 11]),
+            Err(DnsParseError::TruncatedHeader)
+        );
         let packet = query_packet();
         assert_eq!(
             DnsMessage::parse_with_limits(
@@ -535,9 +533,7 @@ mod tests {
         packet[2] = 0x81;
         packet[3] = 0x80;
         packet[7] = 1;
-        packet.extend_from_slice(&[
-            0xc0, 0x0c, 0xfd, 0xe8, 0, 1, 0, 0, 0, 5, 0, 3, 1, 2, 3,
-        ]);
+        packet.extend_from_slice(&[0xc0, 0x0c, 0xfd, 0xe8, 0, 1, 0, 0, 0, 5, 0, 3, 1, 2, 3]);
 
         let message = DnsMessage::parse(&packet).unwrap();
         assert_eq!(
@@ -548,10 +544,7 @@ mod tests {
 
     #[test]
     fn root_name_is_supported() {
-        let mut packet = vec![
-            0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0,
-            0, 0, 1, 0, 1,
-        ];
+        let mut packet = vec![0, 1, 1, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0, 1];
         let message = DnsMessage::parse(&packet).unwrap();
         assert_eq!(message.questions[0].name, ".");
         packet.push(0);
