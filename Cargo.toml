@@ -5,6 +5,7 @@ members = [
     "crates/erebus-policy",
     "crates/erebus-config",
     "crates/erebus-engine",
+    "crates/erebus-dns",
     "crates/erebus-adapter-api",
     "crates/erebus-cli",
 ]
