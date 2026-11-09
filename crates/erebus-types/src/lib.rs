@@ -120,9 +120,7 @@ impl FromStr for IpNetwork {
     type Err = IpNetworkError;
 
     fn from_str(value: &str) -> Result<Self, Self::Err> {
-        let (address, prefix) = value
-            .split_once('/')
-            .ok_or(IpNetworkError::MissingPrefix)?;
+        let (address, prefix) = value.split_once('/').ok_or(IpNetworkError::MissingPrefix)?;
         let address = IpAddr::from_str(address).map_err(|_| IpNetworkError::InvalidAddress)?;
         let prefix = prefix
             .parse::<u8>()
