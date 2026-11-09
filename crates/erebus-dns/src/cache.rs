@@ -49,11 +49,10 @@ pub enum DnsCacheError {
     ZeroMaxTtl,
     #[error("DNS cache is full ({capacity} entries); active entries are not evicted")]
     CapacityReached { capacity: usize },
-    #[error("DNS cache timestamp moved backwards: previous {previous_ms} ms, received {received_ms} ms")]
-    ClockWentBackwards {
-        previous_ms: u64,
-        received_ms: u64,
-    },
+    #[error(
+        "DNS cache timestamp moved backwards: previous {previous_ms} ms, received {received_ms} ms"
+    )]
+    ClockWentBackwards { previous_ms: u64, received_ms: u64 },
     #[error("invalid DNS cache domain: {0}")]
     InvalidDomain(#[from] DomainPolicyError),
 }
@@ -258,9 +257,15 @@ mod tests {
     #[test]
     fn stores_and_retrieves_positive_response_with_new_id() {
         let mut cache = DnsCache::new(DnsCacheConfig::default()).unwrap();
-        assert_eq!(cache.insert(&response(120), 100).unwrap(), CacheInsertOutcome::Stored);
+        assert_eq!(
+            cache.insert(&response(120), 100).unwrap(),
+            CacheInsertOutcome::Stored
+        );
 
-        let result = cache.lookup("EXAMPLE.COM.", 1, 1, 0x2222, 1_100).unwrap().unwrap();
+        let result = cache
+            .lookup("EXAMPLE.COM.", 1, 1, 0x2222, 1_100)
+            .unwrap()
+            .unwrap();
         assert_eq!(result.header.id, 0x2222);
         assert_eq!(result.answers[0].ttl, 119);
         assert_eq!(result.answers[0].data, response(120).answers[0].data);
@@ -271,8 +276,14 @@ mod tests {
         let mut cache = DnsCache::new(DnsCacheConfig::default()).unwrap();
         cache.insert(&response(2), 100).unwrap();
 
-        assert!(cache.lookup("example.com", 1, 1, 1, 2_099).unwrap().is_some());
-        assert!(cache.lookup("example.com", 1, 1, 1, 2_100).unwrap().is_none());
+        assert!(cache
+            .lookup("example.com", 1, 1, 1, 2_099)
+            .unwrap()
+            .is_some());
+        assert!(cache
+            .lookup("example.com", 1, 1, 1, 2_100)
+            .unwrap()
+            .is_none());
         assert_eq!(
             cache.lookup("example.com", 1, 1, 1, 2_099),
             Err(DnsCacheError::ClockWentBackwards {
