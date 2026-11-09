@@ -289,9 +289,9 @@ mod tests {
             DomainMatchKind::Exact,
             DomainAction::Block,
         );
-        assert_eq!(
+        assert!(matches!(
             DomainPolicy::new(DomainAction::Allow, vec![duplicate.clone(), duplicate]),
-            Err(DomainPolicyError::DuplicateRuleId("same".into()))
-        );
+            Err(DomainPolicyError::DuplicateRuleId(id)) if id == "same"
+        ));
     }
 }
