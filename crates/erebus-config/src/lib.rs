@@ -95,25 +95,31 @@ impl PolicyDocument {
 
         let mut rules = Vec::with_capacity(self.rules.len());
         for item in &self.rules {
-            let direction = parse_optional(&item.id, "direction", item.direction.as_deref(), |v| {
-                match v {
+            let direction = parse_optional(
+                &item.id,
+                "direction",
+                item.direction.as_deref(),
+                |v| match v {
                     "inbound" => Some(Direction::Inbound),
                     "outbound" => Some(Direction::Outbound),
                     _ => None,
-                }
-            })?;
+                },
+            )?;
 
-            let protocol =
-                parse_optional(&item.id, "protocol", item.protocol.as_deref(), |v| match v {
+            let protocol = parse_optional(
+                &item.id,
+                "protocol",
+                item.protocol.as_deref(),
+                |v| match v {
                     "tcp" => Some(TransportProtocol::Tcp),
                     "udp" => Some(TransportProtocol::Udp),
                     "icmp" => Some(TransportProtocol::Icmp),
                     _ => None,
-                })?;
+                },
+            )?;
 
             let source = parse_network(&item.id, "source", item.source.as_deref())?;
-            let destination =
-                parse_network(&item.id, "destination", item.destination.as_deref())?;
+            let destination = parse_network(&item.id, "destination", item.destination.as_deref())?;
 
             let verdict = match item.action.as_str() {
                 "allow" => Verdict::Allow,
@@ -172,25 +178,31 @@ impl PolicyDocument {
         let mut rules = Vec::with_capacity(self.rules.len());
 
         for item in &self.rules {
-            let direction = parse_optional(&item.id, "direction", item.direction.as_deref(), |v| {
-                match v {
+            let direction = parse_optional(
+                &item.id,
+                "direction",
+                item.direction.as_deref(),
+                |v| match v {
                     "inbound" => Some(Direction::Inbound),
                     "outbound" => Some(Direction::Outbound),
                     _ => None,
-                }
-            })?;
+                },
+            )?;
 
-            let protocol =
-                parse_optional(&item.id, "protocol", item.protocol.as_deref(), |v| match v {
+            let protocol = parse_optional(
+                &item.id,
+                "protocol",
+                item.protocol.as_deref(),
+                |v| match v {
                     "tcp" => Some(TransportProtocol::Tcp),
                     "udp" => Some(TransportProtocol::Udp),
                     "icmp" => Some(TransportProtocol::Icmp),
                     _ => None,
-                })?;
+                },
+            )?;
 
             let source = parse_network(&item.id, "source", item.source.as_deref())?;
-            let destination =
-                parse_network(&item.id, "destination", item.destination.as_deref())?;
+            let destination = parse_network(&item.id, "destination", item.destination.as_deref())?;
 
             let verdict = match item.action.as_str() {
                 "allow" => Verdict::Allow,
@@ -268,13 +280,11 @@ fn parse_network(
 ) -> Result<Option<IpNetwork>, ConfigError> {
     value
         .map(|value| {
-            value
-                .parse()
-                .map_err(|source| ConfigError::InvalidNetwork {
-                    rule_id: rule_id.to_owned(),
-                    value: value.to_owned(),
-                    source,
-                })
+            value.parse().map_err(|source| ConfigError::InvalidNetwork {
+                rule_id: rule_id.to_owned(),
+                value: value.to_owned(),
+                source,
+            })
         })
         .transpose()
 }
@@ -338,16 +348,22 @@ action = "deny"
 
     #[test]
     fn rejects_invalid_protocol_action_and_network() {
-        let input = VALID.replace("protocol = \"tcp\"", "protocol = \"sctp\"",);
+        let input = VALID.replace("protocol = \"tcp\"", "protocol = \"sctp\"");
         assert!(matches!(
             PolicyDocument::parse(&input),
-            Err(ConfigError::InvalidField { field: "protocol", .. })
+            Err(ConfigError::InvalidField {
+                field: "protocol",
+                ..
+            })
         ));
 
         let input = VALID.replace("action = \"allow\"", "action = \"permit\"");
         assert!(matches!(
             PolicyDocument::parse(&input),
-            Err(ConfigError::InvalidField { field: "action", .. })
+            Err(ConfigError::InvalidField {
+                field: "action",
+                ..
+            })
         ));
 
         let input = VALID.replace("198.51.100.0/24", "198.51.100.0/99");
@@ -359,10 +375,7 @@ action = "deny"
 
     #[test]
     fn rejects_duplicate_rule_ids() {
-        let input = VALID.replace(
-            "id = \"deny-ssh\"",
-            "id = \"allow-web\"",
-        );
+        let input = VALID.replace("id = \"deny-ssh\"", "id = \"allow-web\"");
         assert!(matches!(
             PolicyDocument::parse(&input),
             Err(ConfigError::Policy(PolicyError::DuplicateRuleId(_)))
