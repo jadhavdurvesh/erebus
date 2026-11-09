@@ -8,8 +8,14 @@
 //! of these modules performs operating-system packet capture or enforcement.
 
 pub mod connection;
+pub mod dns;
 pub mod events;
 pub mod rate_limit;
+
+pub use dns::{
+    DnsExpiryReport, DnsQueryInspection, DnsQueryStatus, DnsResponseInspection,
+    DnsSecurityConfig, DnsSecurityError, DnsSecurityService,
+};
 
 pub use connection::{
     ConnectionObservation, ConnectionState, ConnectionTracker, PacketDirection, TcpFlags, TcpState,
