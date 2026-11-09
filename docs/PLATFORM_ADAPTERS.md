@@ -24,9 +24,15 @@ EREBUS keeps policy semantics portable and enforcement native.
 - No packet payload logging by default.
 - No claim of platform support until integration tests pass.
 
-## Sand OS questions to resolve
+## Sand OS readiness
 
-Before coding the first native adapter, inspect Sand OS and document:
+The current SAND OS repository roadmap places its networking foundation at M9. Its current source tree provides the boot chain, x86 interrupt/paging and memory foundations, PIT timer, kernel threads, and synchronization primitives, but no network stack, network drivers, or packet/flow hook API.
+
+Therefore, the EREBUS Sand OS adapter is **blocked on the SAND OS networking foundation**. Do not add a placeholder that suggests traffic is being filtered. In the meantime, validate the portable engine through mock-adapter contract tests.
+
+When SAND OS networking work begins, inspect the current source again; do not assume today's architecture will remain unchanged.
+
+Before coding the native adapter, document:
 
 1. Does the kernel currently have Ethernet and IP layer support?
 2. Where are inbound and outbound packets represented?
