@@ -1,0 +1,26 @@
+# EREBUS DNS policy schema version 1.
+# Rules are matched by specificity: longest matching suffix wins,
+# exact matches win ties, and first declaration wins equal-specificity ties.
+
+schema_version = 1
+
+[policy]
+default = "allow"
+
+[[rules]]
+id = "block-advertising"
+domain = "ads.example"
+match = "suffix"
+action = "block"
+
+[[rules]]
+id = "block-known-tracker"
+domain = "tracker.example"
+match = "suffix"
+action = "block"
+
+[[rules]]
+id = "allow-trusted-admin"
+domain = "admin.example"
+match = "exact"
+action = "allow"
