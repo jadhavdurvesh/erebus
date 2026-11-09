@@ -40,7 +40,7 @@ These are intentionally simplified states. This implementation does not validate
 
 Timeouts are configurable by state family. An entry expires when `expires_at_ms <= now_ms`. Every observation refreshes the timeout for its current state.
 
-The maximum number of entries is set at construction. Expired entries are pruned during observations or by calling `expire(now_ms)`. Active entries are never evicted to make room: a full table returns CapacityReached. The caller should treat a capacity error as an explicit condition and apply its documented policy; it must not silently assume a flow is established.
+The maximum number of entries is set at construction. Interface identifiers are also limited to 256 UTF-8 bytes before being copied into a flow key. Expired entries are pruned during observations or by calling `expire(now_ms)`. Active entries are never evicted to make room: a full table returns CapacityReached. The caller should treat a capacity error as an explicit condition and apply its documented policy; it must not silently assume a flow is established.
 
 All supplied times must be monotonic. A backwards timestamp is rejected.
 
