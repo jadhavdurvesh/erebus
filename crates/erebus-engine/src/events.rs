@@ -26,6 +26,17 @@ pub enum SecurityEventKind {
     RateLimitExceeded {
         scope: String,
     },
+    DnsQueryDecision {
+        domain: String,
+        action: String,
+    },
+    DnsRateLimitExceeded {
+        client: String,
+    },
+    DnsResponseObserved {
+        domain: String,
+        latency_ms: u64,
+    },
     EnforcementFailure {
         adapter: String,
         error_code: String,
@@ -185,6 +196,12 @@ fn validate_event_text(kind: &SecurityEventKind) -> Result<(), EventJournalError
         }
         SecurityEventKind::ConnectionStateChanged { state } => validate(state)?,
         SecurityEventKind::RateLimitExceeded { scope } => validate(scope)?,
+        SecurityEventKind::DnsQueryDecision { domain, action } => {
+            validate(domain)?;
+            validate(action)?;
+        }
+        SecurityEventKind::DnsRateLimitExceeded { client } => validate(client)?,
+        SecurityEventKind::DnsResponseObserved { domain, .. } => validate(domain)?,
         SecurityEventKind::EnforcementFailure {
             adapter,
             error_code,
