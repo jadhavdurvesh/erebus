@@ -4,7 +4,7 @@
 
 EREBUS is an independently designed firewall and network-security platform. Its first integration target is **Sand OS**. Linux and Windows support will be added through native platform adapters.
 
-> Project status: **Portable security-engine foundation**. Policy evaluation, versioned TOML validation, transactional in-memory reload, bounded connection-tracking, structured in-memory events, and token-bucket rate-limiting primitives are implemented. Live packet capture and OS enforcement are not implemented yet.
+> Project status: **Portable security-engine foundation**. Policy evaluation, versioned TOML validation, transactional in-memory reload, bounded connection tracking, structured in-memory events, token-bucket rate limiting, and a reusable DNS security subsystem are implemented. Live packet capture and OS enforcement are not implemented yet.
 
 ## Design principles
 
@@ -43,7 +43,7 @@ The core does not directly modify packets or call platform APIs. An adapter obta
 
 The policy core supports ordered rules using direction, protocol, IPv4/IPv6 CIDR source and destination prefixes, source/destination ports, and exact interface names. The `erebus-config` crate validates versioned TOML documents and converts them into policy sets. The engine supports transactional in-memory policy replacement: invalid updates do not replace the active snapshot.
 
-The engine also exposes bounded TCP/UDP connection tracking, a metadata-only in-memory security event journal, and token-bucket rate-limit primitives. These components are independently tested and are not yet connected to live platform packet callbacks.
+The engine also exposes bounded TCP/UDP connection tracking, a metadata-only in-memory security event journal, and token-bucket rate-limit primitives. The separate `erebus-dns` crate provides bounded DNS parsing, domain policy, request correlation, and positive-response caching. The engine-side DNS service connects those components to per-client rate limits and DNS audit events. These components are independently tested; native adapters still need to supply and enforce live traffic.
 
 ## Repository layout
 
@@ -55,6 +55,7 @@ The engine also exposes bounded TCP/UDP connection tracking, a metadata-only in-
 │   ├── erebus-policy/      # Deterministic policy evaluation
 │   ├── erebus-config/      # Versioned TOML schema and validation
 │   ├── erebus-engine/      # Policy snapshots and security-state primitives
+│   ├── erebus-dns/         # Reusable DNS parsing, policy, tracking, and cache
 │   ├── erebus-adapter-api/ # Contract implemented by OS adapters
 │   └── erebus-cli/         # Offline validate/export tooling
 ├── docs/
@@ -64,10 +65,12 @@ The engine also exposes bounded TCP/UDP connection tracking, a metadata-only in-
 │   ├── CONNECTION_TRACKING.md
 │   ├── SECURITY_EVENTS.md
 │   ├── RATE_LIMITING.md
+│   ├── DNS_SECURITY.md
 │   ├── ROADMAP.md
 │   └── PLATFORM_ADAPTERS.md
 ├── examples/
-│   └── policy.toml
+│   ├── policy.toml
+│   └── dns-policy.toml
 └── .github/
     └── workflows/
         └── ci.yml
@@ -87,13 +90,17 @@ cargo run -p erebus-cli -- validate examples/policy.toml
 
 # Print normalized TOML
 cargo run -p erebus-cli -- export examples/policy.toml
+
+# Validate and export DNS domain policy
+cargo run -p erebus-cli -- dns-validate examples/dns-policy.toml
+cargo run -p erebus-cli -- dns-export examples/dns-policy.toml
 ```
 
-The CLI also accepts `--output path` with `export` to write canonical TOML to a file. It has no command that changes host firewall state.
+The CLI accepts `--output path` with `export` and `dns-export` to write canonical TOML to a file. It has no command that changes host firewall or DNS settings.
 
 ## Safety notice
 
-EREBUS is experimental software. Its portable decision and state-management primitives are not a functioning firewall. The connection tracker uses simplified TCP state observations and is not a replacement for a kernel TCP stack. The event journal is volatile in-memory storage, not a durable audit log. Do not rely on EREBUS to protect a production machine or expose network services.
+EREBUS is experimental software. Its portable decision and state-management primitives are not a functioning firewall. The connection tracker uses simplified TCP state observations and is not a replacement for a kernel TCP stack. The DNS service evaluates parsed messages but does not intercept or forward live DNS traffic. The event journal is volatile in-memory storage, not a durable audit log. Do not rely on EREBUS to protect a production machine or expose network services.
 
 ## Roadmap
 
