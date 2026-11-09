@@ -280,10 +280,11 @@ mod tests {
         let mut cache = DnsCache::new(DnsCacheConfig::default()).unwrap();
         cache.insert(&response(2), 100).unwrap();
 
-        assert!(cache
+        let almost_expired = cache
             .lookup("example.com", 1, 1, 1, 2_099)
             .unwrap()
-            .is_some());
+            .unwrap();
+        assert_eq!(almost_expired.answers[0].ttl, 0);
         assert!(cache
             .lookup("example.com", 1, 1, 1, 2_100)
             .unwrap()
@@ -320,6 +321,25 @@ mod tests {
             CacheInsertOutcome::IgnoredNotCacheable
         );
         assert_eq!(cache.len(), 0);
+    }
+
+    #[test]
+    fn rejects_responses_with_extended_dns_errors() {
+        let mut cache = DnsCache::new(DnsCacheConfig::default()).unwrap();
+        let mut message = response(10);
+        message.additionals.push(DnsRecord {
+            name: ".".into(),
+            rr_type: 41,
+            class: 1232,
+            ttl: 1 << 24,
+            data: DnsRecordData::Opt(vec![]),
+        });
+
+        assert_eq!(
+            cache.insert(&message, 1).unwrap(),
+            CacheInsertOutcome::IgnoredNotCacheable
+        );
+        assert!(cache.is_empty());
     }
 
     #[test]
