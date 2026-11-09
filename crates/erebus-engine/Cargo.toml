@@ -1,0 +1,10 @@
+[package]
+name = "erebus-engine"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+rust-version.workspace = true
+
+[dependencies]
+erebus-types = { path = "../erebus-types" }
+erebus-policy = { path = "../erebus-policy" }
