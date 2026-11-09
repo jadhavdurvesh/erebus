@@ -170,6 +170,9 @@ mod tests {
             verdict: Verdict::Deny,
         };
         let result = PolicySet::new(vec![rule.clone(), rule], DefaultPolicy::Deny);
-        assert_eq!(result.unwrap_err(), PolicyError::DuplicateRuleId("same".into()));
+        assert_eq!(
+            result.unwrap_err(),
+            PolicyError::DuplicateRuleId("same".into())
+        );
     }
 }
