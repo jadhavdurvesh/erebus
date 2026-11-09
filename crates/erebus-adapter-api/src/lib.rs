@@ -41,9 +41,7 @@ pub trait PlatformAdapter {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use erebus_types::{
-        DecisionReason, Direction, PolicyDecision, TransportProtocol, Verdict,
-    };
+    use erebus_types::{DecisionReason, Direction, PolicyDecision, TransportProtocol, Verdict};
     use std::net::{IpAddr, Ipv4Addr};
 
     #[derive(Debug, Eq, PartialEq)]
