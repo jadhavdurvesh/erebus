@@ -8,6 +8,8 @@ use erebus_types::{FlowId, TrafficDescriptor, TransportProtocol};
 use std::{cmp::Ordering, collections::HashMap, net::IpAddr as StdIpAddr};
 use thiserror::Error;
 
+pub const MAX_INTERFACE_NAME_BYTES: usize = 256;
+
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct Endpoint {
     address: StdIpAddr,
@@ -186,6 +188,11 @@ pub enum TrackerError {
     ZeroCapacity,
     #[error("TCP traffic requires source and destination ports")]
     MissingTcpPorts,
+    #[error("interface name is too long: {actual_bytes} bytes; maximum is {max_bytes}")]
+    InterfaceNameTooLong {
+        actual_bytes: usize,
+        max_bytes: usize,
+    },
     #[error("TCP traffic requires TCP flags")]
     MissingTcpFlags,
     #[error("TCP flags contain an invalid SYN and FIN combination")]
@@ -259,7 +266,15 @@ impl ConnectionTracker {
         now_ms: u64,
     ) -> Result<ConnectionObservation, TrackerError> {
         self.check_time(now_ms)?;
-        self.last_observed_ms = Some(now_ms);
+
+        if let Some(interface) = traffic.interface.as_deref() {
+            if interface.len() > MAX_INTERFACE_NAME_BYTES {
+                return Err(TrackerError::InterfaceNameTooLong {
+                    actual_bytes: interface.len(),
+                    max_bytes: MAX_INTERFACE_NAME_BYTES,
+                });
+            }
+        }
 
         let source = Endpoint {
             address: traffic.source,
@@ -283,6 +298,7 @@ impl ConnectionTracker {
             }
         }
 
+        self.last_observed_ms = Some(now_ms);
         self.expire_internal(now_ms);
         let key = FlowKey::new(
             traffic.protocol,
@@ -647,6 +663,34 @@ mod tests {
         assert_eq!(
             tracker.observe(&tcp, Some(invalid), 3),
             Err(TrackerError::InvalidTcpFlags)
+        );
+    }
+
+    #[test]
+    fn interface_is_part_of_flow_identity_and_is_size_bounded() {
+        let mut tracker = new_tracker(8);
+        let mut first = packet(
+            TransportProtocol::Udp,
+            "192.0.2.1",
+            Some(1000),
+            "198.51.100.1",
+            Some(2000),
+        );
+        first.interface = Some("eth0".into());
+        let first_flow = tracker.observe(&first, None, 1).unwrap();
+
+        let mut second = first.clone();
+        second.interface = Some("wlan0".into());
+        let second_flow = tracker.observe(&second, None, 2).unwrap();
+        assert_ne!(first_flow.flow_id, second_flow.flow_id);
+
+        second.interface = Some("x".repeat(MAX_INTERFACE_NAME_BYTES + 1));
+        assert_eq!(
+            tracker.observe(&second, None, 3),
+            Err(TrackerError::InterfaceNameTooLong {
+                actual_bytes: MAX_INTERFACE_NAME_BYTES + 1,
+                max_bytes: MAX_INTERFACE_NAME_BYTES
+            })
         );
     }
 
