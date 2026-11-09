@@ -1,8 +1,8 @@
 //! Deterministic, platform-neutral policy evaluation.
 
 use erebus_types::{
-    DecisionReason, Direction, IpNetwork, PolicyDecision, TrafficDescriptor,
-    TransportProtocol, Verdict,
+    DecisionReason, Direction, IpNetwork, PolicyDecision, TrafficDescriptor, TransportProtocol,
+    Verdict,
 };
 use thiserror::Error;
 
@@ -24,9 +24,14 @@ pub struct Rule {
 
 impl Rule {
     fn matches(&self, traffic: &TrafficDescriptor) -> bool {
-        self.direction.map_or(true, |value| value == traffic.direction)
-            && self.protocol.map_or(true, |value| value == traffic.protocol)
-            && self.source.map_or(true, |network| network.contains(traffic.source))
+        self.direction
+            .map_or(true, |value| value == traffic.direction)
+            && self
+                .protocol
+                .map_or(true, |value| value == traffic.protocol)
+            && self
+                .source
+                .map_or(true, |network| network.contains(traffic.source))
             && self
                 .destination
                 .map_or(true, |network| network.contains(traffic.destination))
@@ -193,8 +198,7 @@ mod tests {
     #[test]
     fn duplicate_rule_ids_are_rejected() {
         let duplicate = rule("same", Verdict::Deny);
-        let result =
-            PolicySet::new(vec![duplicate.clone(), duplicate], DefaultPolicy::Deny);
+        let result = PolicySet::new(vec![duplicate.clone(), duplicate], DefaultPolicy::Deny);
 
         assert_eq!(
             result.unwrap_err(),
@@ -208,8 +212,7 @@ mod tests {
         allow_trusted_subnet.source = Some("127.0.0.0/8".parse().unwrap());
         allow_trusted_subnet.destination = Some("192.0.2.0/24".parse().unwrap());
 
-        let policy =
-            PolicySet::new(vec![allow_trusted_subnet], DefaultPolicy::Deny).unwrap();
+        let policy = PolicySet::new(vec![allow_trusted_subnet], DefaultPolicy::Deny).unwrap();
 
         assert_eq!(policy.evaluate(&traffic(443)).verdict, Verdict::Allow);
 
