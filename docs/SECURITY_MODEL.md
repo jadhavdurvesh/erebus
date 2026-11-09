@@ -31,7 +31,7 @@
 
 ## Safety during development
 
-The current repository contains policy-evaluation scaffolding only. It does not capture or block network traffic. Tests must use synthetic descriptors and isolated test environments until a platform adapter is implemented.
+The current repository contains a portable policy evaluator, a bounded connection-state model, an in-memory structured event journal, and token-bucket rate-limiting primitives. These components do not capture or block live network traffic. The connection tracker uses simplified TCP observations and must not be treated as a replacement for a kernel TCP stack. The event journal is volatile and is not a durable audit sink. Tests use synthetic descriptors until a platform adapter is implemented.
 
 ## Responsible testing
 
