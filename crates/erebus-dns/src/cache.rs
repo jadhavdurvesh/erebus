@@ -7,7 +7,7 @@ use crate::{
 use std::collections::HashMap;
 use thiserror::Error;
 
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+#[derive(Clone, Debug, Eq, Hash, PartialEq)]
 struct CacheKey {
     name: String,
     qtype: u16,
@@ -299,7 +299,7 @@ mod tests {
             CacheInsertOutcome::IgnoredNotCacheable
         );
 
-        let mut message = response(0);
+        let message = response(0);
         assert_eq!(
             cache.insert(&message, 3).unwrap(),
             CacheInsertOutcome::IgnoredNotCacheable
