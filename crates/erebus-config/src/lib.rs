@@ -285,6 +285,7 @@ fn parse_network(
         .map(|value| {
             value.parse().map_err(|source| ConfigError::InvalidNetwork {
                 rule_id: rule_id.to_owned(),
+                field,
                 value: value.to_owned(),
                 source,
             })
