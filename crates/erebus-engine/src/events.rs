@@ -166,26 +166,35 @@ impl EventJournal {
 }
 
 fn validate_event_text(kind: &SecurityEventKind) -> Result<(), EventJournalError> {
-    let text_fields: Vec<&str> = match kind {
-        SecurityEventKind::PolicyDecision { rule_id, .. } => rule_id.iter().map(String::as_str).collect(),
-        SecurityEventKind::PolicyReloaded { .. }
-        | SecurityEventKind::ConnectionCreated
-        | SecurityEventKind::ConnectionExpired => Vec::new(),
-        SecurityEventKind::ConnectionStateChanged { state } => vec![state],
-        SecurityEventKind::RateLimitExceeded { scope } => vec![scope],
+    let validate = |text: &str| {
+        if text.len() > MAX_EVENT_TEXT_BYTES {
+            Err(EventJournalError::EventTextTooLong {
+                actual_bytes: text.len(),
+                max_bytes: MAX_EVENT_TEXT_BYTES,
+            })
+        } else {
+            Ok(())
+        }
+    };
+
+    match kind {
+        SecurityEventKind::PolicyDecision { rule_id, .. } => {
+            if let Some(rule_id) = rule_id {
+                validate(rule_id)?;
+            }
+        }
+        SecurityEventKind::ConnectionStateChanged { state } => validate(state)?,
+        SecurityEventKind::RateLimitExceeded { scope } => validate(scope)?,
         SecurityEventKind::EnforcementFailure {
             adapter,
             error_code,
-        } => vec![adapter, error_code],
-    };
-
-    for text in text_fields {
-        if text.len() > MAX_EVENT_TEXT_BYTES {
-            return Err(EventJournalError::EventTextTooLong {
-                actual_bytes: text.len(),
-                max_bytes: MAX_EVENT_TEXT_BYTES,
-            });
+        } => {
+            validate(adapter)?;
+            validate(error_code)?;
         }
+        SecurityEventKind::PolicyReloaded { .. }
+        | SecurityEventKind::ConnectionCreated
+        | SecurityEventKind::ConnectionExpired => {}
     }
 
     Ok(())
