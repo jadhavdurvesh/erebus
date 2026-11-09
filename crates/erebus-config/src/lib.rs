@@ -27,9 +27,10 @@ pub enum ConfigError {
     },
     #[error("invalid {field} value '{value}' in policy section")]
     InvalidPolicyValue { field: &'static str, value: String },
-    #[error("invalid network prefix '{value}' in rule '{rule_id}': {source}")]
+    #[error("invalid {field} network prefix '{value}' in rule '{rule_id}': {source}")]
     InvalidNetwork {
         rule_id: String,
+        field: &'static str,
         value: String,
         #[source]
         source: erebus_types::IpNetworkError,
