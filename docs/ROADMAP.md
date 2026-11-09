@@ -11,13 +11,24 @@ This roadmap describes intended work; listed items are not claims of completed f
 - [ ] Add CI and verify formatting, tests, and linting.
 - [ ] Define configuration schema and versioning rules.
 
-## Milestone 1 — Sand OS integration research
+## Milestone 1 — Portable core hardening and adapter contract
 
-- [ ] Document Sand OS network architecture and packet/flow lifecycle.
+- [ ] Expand policy matching tests (address prefixes, interfaces, protocol edge cases).
+- [ ] Define a versioned, validated policy configuration schema.
+- [ ] Add adapter contract conformance tests with a mock adapter.
+- [ ] Define structured decision and enforcement-failure events.
+- [ ] Specify bounded queues, policy update semantics, and shutdown behaviour.
+
+## Milestone 2 — Sand OS integration research (dependency-gated)
+
+**Dependency:** SAND OS must first implement its planned M9 networking foundation. At the time this roadmap was written, the SAND OS repository is at M3 and contains no network stack or packet/flow hook API. EREBUS must not claim native Sand OS enforcement until those interfaces exist.
+
+- [ ] Re-inspect the SAND OS networking implementation when its M9 work begins.
+- [ ] Document packet/flow lifecycle and ownership.
 - [ ] Identify safe inbound and outbound enforcement hook points.
 - [ ] Define kernel/userspace boundary and IPC contract.
-- [ ] Build a no-op Sand OS adapter for integration testing.
-- [ ] Add simulator tests before enabling real enforcement.
+- [ ] Build a real Sand OS adapter against the documented native interfaces.
+- [ ] Add simulator and integration tests before enabling enforcement.
 
 ## Milestone 2 — Sand OS minimum viable enforcement
 
