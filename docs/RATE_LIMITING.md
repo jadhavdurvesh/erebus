@@ -15,7 +15,7 @@ The bucket begins full. A request supplies a token cost. If enough tokens remain
 
 ## Keyed limiter
 
-KeyedRateLimiter maintains separate buckets for bounded keys, such as remote IP addresses. Configuration controls:
+KeyedRateLimiter maintains separate buckets for bounded keys, such as remote IP addresses. Keys implement the RateLimitKey contract and are limited to 128 encoded bytes. Built-in implementations are provided for IP addresses, strings, byte vectors, and fixed-size byte arrays. Configuration controls:
 
 - Bucket capacity and refill interval.
 - Maximum number of keys.
@@ -31,6 +31,6 @@ All timestamps are monotonic milliseconds. Clock regressions are rejected. Do no
 
 - Choose keys carefully: attacker-controlled unbounded strings can exhaust the key table, although memory remains capped.
 - For network use, prefer normalized IP-address keys or other bounded identifiers.
-- A capacity error is not an implicit permission to proceed.
+- A capacity error or oversized key is not an implicit permission to proceed.
 - The caller must decide whether a false token result or key-capacity error should cause delay, deny, or another documented action.
 - Rate limiting is not a substitute for connection tracking, authentication, or a firewall policy.
