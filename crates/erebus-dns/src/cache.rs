@@ -111,6 +111,10 @@ impl DnsCache {
         if !response.is_response()
             || response.header.truncated()
             || response.header.response_code() != 0
+            || response
+                .additionals
+                .iter()
+                .any(|record| record.is_opt() && (record.ttl >> 24) != 0)
             || response.answers.is_empty()
         {
             return Ok(CacheInsertOutcome::IgnoredNotCacheable);
@@ -169,7 +173,7 @@ impl DnsCache {
         };
 
         let remaining_ms = entry.expires_at_ms.saturating_sub(now_ms);
-        let remaining_ttl = remaining_ms.saturating_add(999) / 1000;
+        let remaining_ttl = remaining_ms / 1000;
         let mut response = entry.response.clone();
         response.header.id = request_id;
         update_ttls(&mut response.answers, remaining_ttl);
