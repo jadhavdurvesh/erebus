@@ -191,7 +191,7 @@ impl DnsMessage {
         if qd > limits.max_questions
             || an.checked_add(ns)
                 .and_then(|count| count.checked_add(ar))
-                .is_none_or(|count| count > limits.max_records)
+                .map_or(true, |count| count > limits.max_records)
         {
             return Err(DnsParseError::CountLimitExceeded);
         }
