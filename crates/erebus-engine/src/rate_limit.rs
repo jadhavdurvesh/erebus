@@ -4,8 +4,51 @@
 //! and must be called by an adapter or service that owns the relevant traffic.
 
 use std::collections::HashMap;
-use std::hash::Hash;
+use std::{
+    hash::Hash,
+    net::IpAddr,
+};
 use thiserror::Error;
+
+pub const MAX_RATE_LIMIT_KEY_BYTES: usize = 128;
+
+/// Implement this for a bounded identifier used to distinguish rate-limit buckets.
+pub trait RateLimitKey {
+    fn encoded_len(&self) -> usize;
+}
+
+impl RateLimitKey for IpAddr {
+    fn encoded_len(&self) -> usize {
+        match self {
+            IpAddr::V4(_) => 4,
+            IpAddr::V6(_) => 16,
+        }
+    }
+}
+
+impl RateLimitKey for String {
+    fn encoded_len(&self) -> usize {
+        self.len()
+    }
+}
+
+impl RateLimitKey for &str {
+    fn encoded_len(&self) -> usize {
+        self.len()
+    }
+}
+
+impl RateLimitKey for Vec<u8> {
+    fn encoded_len(&self) -> usize {
+        self.len()
+    }
+}
+
+impl<const N: usize> RateLimitKey for [u8; N] {
+    fn encoded_len(&self) -> usize {
+        N
+    }
+}
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
 pub struct TokenBucketConfig {
@@ -31,6 +74,11 @@ pub enum RateLimitError {
     ZeroIdleTimeout,
     #[error("rate limiter key table is full ({capacity} keys); active keys are not evicted")]
     KeyCapacityReached { capacity: usize },
+    #[error("rate limiter key is too long: {actual_bytes} bytes; maximum is {max_bytes}")]
+    KeyTooLong {
+        actual_bytes: usize,
+        max_bytes: usize,
+    },
     #[error("timestamp moved backwards: previous {previous_ms} ms, received {received_ms} ms")]
     ClockWentBackwards { previous_ms: u64, received_ms: u64 },
 }
@@ -150,7 +198,7 @@ pub struct KeyedRateLimiter<K> {
 
 impl<K> KeyedRateLimiter<K>
 where
-    K: Eq + Hash,
+    K: Eq + Hash + RateLimitKey,
 {
     pub fn new(config: KeyedRateLimiterConfig) -> Result<Self, RateLimitError> {
         validate_bucket_config(config.bucket)?;
@@ -182,6 +230,13 @@ where
 
     pub fn check_cost(&mut self, key: K, now_ms: u64, cost: u32) -> Result<bool, RateLimitError> {
         validate_cost(cost, self.config.bucket.capacity)?;
+        let key_bytes = key.encoded_len();
+        if key_bytes > MAX_RATE_LIMIT_KEY_BYTES {
+            return Err(RateLimitError::KeyTooLong {
+                actual_bytes: key_bytes,
+                max_bytes: MAX_RATE_LIMIT_KEY_BYTES,
+            });
+        }
         self.check_time(now_ms)?;
         self.last_observed_ms = Some(now_ms);
         self.prune_idle_internal(now_ms);
@@ -315,6 +370,26 @@ mod tests {
         );
         assert_eq!(limiter.prune_idle(100).unwrap(), 1);
         assert!(limiter.check("client-b", 101).unwrap());
+    }
+
+    #[test]
+    fn keyed_limiter_rejects_oversized_keys() {
+        let mut limiter = KeyedRateLimiter::new(KeyedRateLimiterConfig {
+            bucket: bucket_config(),
+            max_keys: 2,
+            idle_timeout_ms: 100,
+        })
+        .unwrap();
+        let oversized = "k".repeat(MAX_RATE_LIMIT_KEY_BYTES + 1);
+
+        assert_eq!(
+            limiter.check(oversized, 1),
+            Err(RateLimitError::KeyTooLong {
+                actual_bytes: MAX_RATE_LIMIT_KEY_BYTES + 1,
+                max_bytes: MAX_RATE_LIMIT_KEY_BYTES
+            })
+        );
+        assert_eq!(limiter.key_count(), 0);
     }
 
     #[test]
