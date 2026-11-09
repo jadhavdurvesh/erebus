@@ -106,17 +106,18 @@ impl PolicyDocument {
                 },
             )?;
 
-            let protocol = parse_optional(
-                &item.id,
-                "protocol",
-                item.protocol.as_deref(),
-                |v| match v {
-                    "tcp" => Some(TransportProtocol::Tcp),
-                    "udp" => Some(TransportProtocol::Udp),
-                    "icmp" => Some(TransportProtocol::Icmp),
-                    _ => None,
-                },
-            )?;
+            let protocol =
+                parse_optional(
+                    &item.id,
+                    "protocol",
+                    item.protocol.as_deref(),
+                    |v| match v {
+                        "tcp" => Some(TransportProtocol::Tcp),
+                        "udp" => Some(TransportProtocol::Udp),
+                        "icmp" => Some(TransportProtocol::Icmp),
+                        _ => None,
+                    },
+                )?;
 
             let source = parse_network(&item.id, "source", item.source.as_deref())?;
             let destination = parse_network(&item.id, "destination", item.destination.as_deref())?;
@@ -189,17 +190,18 @@ impl PolicyDocument {
                 },
             )?;
 
-            let protocol = parse_optional(
-                &item.id,
-                "protocol",
-                item.protocol.as_deref(),
-                |v| match v {
-                    "tcp" => Some(TransportProtocol::Tcp),
-                    "udp" => Some(TransportProtocol::Udp),
-                    "icmp" => Some(TransportProtocol::Icmp),
-                    _ => None,
-                },
-            )?;
+            let protocol =
+                parse_optional(
+                    &item.id,
+                    "protocol",
+                    item.protocol.as_deref(),
+                    |v| match v {
+                        "tcp" => Some(TransportProtocol::Tcp),
+                        "udp" => Some(TransportProtocol::Udp),
+                        "icmp" => Some(TransportProtocol::Icmp),
+                        _ => None,
+                    },
+                )?;
 
             let source = parse_network(&item.id, "source", item.source.as_deref())?;
             let destination = parse_network(&item.id, "destination", item.destination.as_deref())?;
