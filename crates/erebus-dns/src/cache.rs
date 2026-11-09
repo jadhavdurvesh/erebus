@@ -9,16 +9,13 @@ use thiserror::Error;
 
 #[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
 struct CacheKey {
-    name_hash: u64,
+    name: String,
     qtype: u16,
     qclass: u16,
 }
 
 #[derive(Clone, Debug)]
 struct CacheEntry {
-    name: String,
-    qtype: u16,
-    qclass: u16,
     response: DnsMessage,
     expires_at_ms: u64,
 }
@@ -145,9 +142,6 @@ impl DnsCache {
         self.entries.insert(
             key,
             CacheEntry {
-                name,
-                qtype: question.qtype,
-                qclass: question.qclass,
                 response: response.clone(),
                 expires_at_ms,
             },
@@ -174,10 +168,6 @@ impl DnsCache {
         let Some(entry) = self.entries.get(&key) else {
             return Ok(None);
         };
-
-        if entry.name != normalized || entry.qtype != qtype || entry.qclass != qclass {
-            return Ok(None);
-        }
 
         let remaining_ms = entry.expires_at_ms.saturating_sub(now_ms);
         let remaining_ttl = remaining_ms.saturating_add(999) / 1000;
@@ -215,15 +205,8 @@ impl DnsCache {
 }
 
 fn cache_key(name: &str, qtype: u16, qclass: u16) -> CacheKey {
-    // FNV-1a is used only as a compact internal lookup hash; the full normalized
-    // name is also compared in the entry before a response is returned.
-    let mut hash = 0xcbf29ce484222325u64;
-    for byte in name.bytes() {
-        hash ^= u64::from(byte);
-        hash = hash.wrapping_mul(0x100000001b3);
-    }
     CacheKey {
-        name_hash: hash,
+        name: name.to_owned(),
         qtype,
         qclass,
     }
