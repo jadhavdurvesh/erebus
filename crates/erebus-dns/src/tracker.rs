@@ -416,9 +416,7 @@ mod tests {
             .unwrap();
 
         assert_eq!(
-            tracker.observe_query(
-                client, 53000, resolver, 53, DnsTransport::Udp, &query, 11,
-            ),
+            tracker.observe_query(client, 53000, resolver, 53, DnsTransport::Udp, &query, 11,),
             Err(DnsTrackerError::DuplicateRequest)
         );
         assert_eq!(
