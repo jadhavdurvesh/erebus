@@ -8,7 +8,7 @@ This roadmap describes intended work; listed items are not claims of completed f
 - [x] Define portable traffic and verdict types.
 - [x] Implement deterministic first-match policy evaluation.
 - [x] Define platform adapter contract.
-- [ ] Add CI and verify formatting, tests, and linting.
+- [x] Add CI and verify formatting, tests, and linting.
 - [ ] Define configuration schema and versioning rules.
 
 ## Milestone 1 — Portable core hardening and adapter contract
