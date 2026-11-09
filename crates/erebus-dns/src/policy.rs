@@ -57,7 +57,11 @@ impl DomainPattern {
     fn specificity(&self) -> (usize, u8) {
         (
             self.domain.len(),
-            if self.kind == DomainMatchKind::Exact { 1 } else { 0 },
+            if self.kind == DomainMatchKind::Exact {
+                1
+            } else {
+                0
+            },
         )
     }
 }
@@ -200,7 +204,10 @@ mod tests {
     #[test]
     fn normalizes_case_and_trailing_dot() {
         assert_eq!(normalize_domain("ExAmPle.COM.").unwrap(), "example.com");
-        assert_eq!(normalize_domain("_sip._TCP.example.com").unwrap(), "_sip._tcp.example.com");
+        assert_eq!(
+            normalize_domain("_sip._TCP.example.com").unwrap(),
+            "_sip._tcp.example.com"
+        );
     }
 
     #[test]
@@ -225,9 +232,24 @@ mod tests {
         let policy = DomainPolicy::new(
             DomainAction::Allow,
             vec![
-                rule("block-example", "example.com", DomainMatchKind::Suffix, DomainAction::Block),
-                rule("allow-trusted", "trusted.example.com", DomainMatchKind::Suffix, DomainAction::Allow),
-                rule("block-exact", "trusted.example.com", DomainMatchKind::Exact, DomainAction::Block),
+                rule(
+                    "block-example",
+                    "example.com",
+                    DomainMatchKind::Suffix,
+                    DomainAction::Block,
+                ),
+                rule(
+                    "allow-trusted",
+                    "trusted.example.com",
+                    DomainMatchKind::Suffix,
+                    DomainAction::Allow,
+                ),
+                rule(
+                    "block-exact",
+                    "trusted.example.com",
+                    DomainMatchKind::Exact,
+                    DomainAction::Block,
+                ),
             ],
         )
         .unwrap();
@@ -252,10 +274,21 @@ mod tests {
 
     #[test]
     fn rejects_bad_names_and_duplicate_rule_ids() {
-        assert_eq!(normalize_domain("bad..example"), Err(DomainPolicyError::InvalidDomain));
-        assert_eq!(normalize_domain("-bad.example"), Err(DomainPolicyError::InvalidDomain));
+        assert_eq!(
+            normalize_domain("bad..example"),
+            Err(DomainPolicyError::InvalidDomain)
+        );
+        assert_eq!(
+            normalize_domain("-bad.example"),
+            Err(DomainPolicyError::InvalidDomain)
+        );
 
-        let duplicate = rule("same", "example.com", DomainMatchKind::Exact, DomainAction::Block);
+        let duplicate = rule(
+            "same",
+            "example.com",
+            DomainMatchKind::Exact,
+            DomainAction::Block,
+        );
         assert_eq!(
             DomainPolicy::new(DomainAction::Allow, vec![duplicate.clone(), duplicate]),
             Err(DomainPolicyError::DuplicateRuleId("same".into()))
