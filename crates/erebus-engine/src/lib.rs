@@ -140,16 +140,18 @@ mod tests {
 
     const DENY_ALL: &str = r#"
 schema_version = 1
+rules = []
+
 [policy]
 default = "deny"
-rules = []
 "#;
 
     const ALLOW_ALL: &str = r#"
 schema_version = 1
+rules = []
+
 [policy]
 default = "allow"
-rules = []
 "#;
 
     fn traffic() -> TrafficDescriptor {
