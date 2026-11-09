@@ -3,8 +3,10 @@ resolver = "2"
 members = [
     "crates/erebus-types",
     "crates/erebus-policy",
+    "crates/erebus-config",
     "crates/erebus-engine",
     "crates/erebus-adapter-api",
+    "crates/erebus-cli",
 ]
 
 [workspace.package]
@@ -17,3 +19,5 @@ repository = "https://github.com/jadhavdurvesh/erebus"
 [workspace.dependencies]
 thiserror = "1"
 serde = { version = "1", features = ["derive"] }
+toml = "0.8"
+clap = { version = "4.5", features = ["derive"] }
