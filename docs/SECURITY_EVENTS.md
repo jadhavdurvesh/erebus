@@ -17,7 +17,7 @@ Event kinds contain metadata only. Packet payloads, credentials, private keys, D
 
 ## Bounded retention
 
-The journal is an in-memory FIFO with a fixed maximum number of entries. When full, recording a new event evicts the oldest entry and returns its sequence number in RecordOutcome. Consumers can detect that the retained in-memory history rolled over.
+The journal is an in-memory FIFO with a fixed maximum number of entries. Event text fields are limited to 256 UTF-8 bytes each. When full, recording a new event evicts the oldest entry and returns its sequence number in RecordOutcome. Consumers can detect that the retained in-memory history rolled over.
 
 The journal is **not durable storage**. A process restart loses its contents. Production audit requirements will need a separate persistence/export sink, retention policy, permissions model, and tamper-resistance design.
 
