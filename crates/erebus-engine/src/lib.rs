@@ -13,13 +13,15 @@ pub mod rate_limit;
 
 pub use connection::{
     ConnectionObservation, ConnectionState, ConnectionTracker, PacketDirection, TcpFlags, TcpState,
-    TrackerConfig, TrackerError, UdpState,
+    TrackerConfig, TrackerError, UdpState, MAX_INTERFACE_NAME_BYTES,
 };
 pub use events::{
     EventJournal, EventJournalError, RecordOutcome, SecurityEvent, SecurityEventKind,
+    MAX_EVENT_TEXT_BYTES,
 };
 pub use rate_limit::{
-    KeyedRateLimiter, KeyedRateLimiterConfig, RateLimitError, TokenBucket, TokenBucketConfig,
+    KeyedRateLimiter, KeyedRateLimiterConfig, RateLimitError, RateLimitKey, TokenBucket,
+    TokenBucketConfig, MAX_RATE_LIMIT_KEY_BYTES,
 };
 
 use erebus_config::{ConfigError, PolicyDocument};
