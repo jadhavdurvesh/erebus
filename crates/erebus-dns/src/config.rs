@@ -1,7 +1,7 @@
 //! Versioned TOML configuration for DNS domain policy.
 
 use crate::policy::{
-    DomainAction, DomainMatchKind, DomainPolicy, DomainPolicyError, DomainPattern, DomainRule,
+    DomainAction, DomainMatchKind, DomainPattern, DomainPolicy, DomainPolicyError, DomainRule,
 };
 use serde::{Deserialize, Serialize};
 use thiserror::Error;
@@ -150,7 +150,10 @@ action = "allow"
         let document = DnsPolicyDocument::parse(VALID).unwrap();
         let policy = document.to_policy().unwrap();
         assert_eq!(policy.rules().len(), 2);
-        assert_eq!(policy.evaluate("sub.ads.example").unwrap().action, DomainAction::Block);
+        assert_eq!(
+            policy.evaluate("sub.ads.example").unwrap().action,
+            DomainAction::Block
+        );
     }
 
     #[test]
@@ -158,7 +161,10 @@ action = "allow"
         let input = VALID.replace("schema_version = 1", "schema_version = 2");
         assert!(matches!(
             DnsPolicyDocument::parse(&input),
-            Err(DnsConfigError::UnsupportedVersion { found: 2, supported: 1 })
+            Err(DnsConfigError::UnsupportedVersion {
+                found: 2,
+                supported: 1
+            })
         ));
 
         let input = VALID.replace("schema_version = 1", "schema_version = 1\nmode = \"fast\"");
