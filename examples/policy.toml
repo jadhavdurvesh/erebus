@@ -1,0 +1,26 @@
+# Illustrative policy format only. The configuration loader is not implemented.
+# Rule order is significant; first matching rule wins.
+
+[policy]
+default = "deny"
+
+[[rules]]
+id = "allow-outbound-dns-udp"
+direction = "outbound"
+protocol = "udp"
+destination_port = 53
+action = "allow"
+
+[[rules]]
+id = "allow-outbound-https"
+direction = "outbound"
+protocol = "tcp"
+destination_port = 443
+action = "allow"
+
+[[rules]]
+id = "deny-inbound-ssh"
+direction = "inbound"
+protocol = "tcp"
+destination_port = 22
+action = "deny"
