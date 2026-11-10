@@ -6,6 +6,7 @@
 pub mod cache;
 pub mod config;
 pub mod policy;
+pub mod proxy;
 pub mod tracker;
 pub mod wire;
 
@@ -14,6 +15,10 @@ pub use config::{DnsConfigError, DnsPolicyDocument, CURRENT_DNS_SCHEMA_VERSION};
 pub use policy::{
     normalize_domain, DomainAction, DomainDecision, DomainMatchKind, DomainPattern, DomainPolicy,
     DomainPolicyError, DomainRule,
+};
+pub use proxy::{
+    DnsExchange, DnsProxy, DnsProxyConfig, DnsProxyDecision, DnsProxyError, DnsProxyMetrics,
+    DnsProxyPolicy, DnsProxyPolicyError,
 };
 pub use tracker::{
     DnsRequestObservation, DnsRequestTracker, DnsResponseObservation, DnsTrackerConfig,
