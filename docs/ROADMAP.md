@@ -75,7 +75,11 @@ This roadmap describes intended work; listed items are not claims of completed f
 - [x] Add independent DNS wire parser, versioned domain policy, request correlation, and positive-response cache.
 - [x] Integrate DNS decisions, per-client rate limiting, response correlation, cache admission, and audit events into the portable engine.
 - [x] Add offline DNS policy validation and canonical export CLI commands.
-- [ ] Connect DNS service to native adapter traffic callbacks.
+- [x] Add bounded UDP/TCP DNS proxy transport with plain UDP/TCP upstream forwarding.
+- [x] Add a loopback-first CLI launcher and live local UDP/TCP forwarding tests.
+- [ ] Add authenticated DNS-over-TLS upstream transport.
+- [ ] Add authenticated DNS-over-HTTPS upstream transport.
+- [ ] Connect DNS service to native adapter traffic callbacks and OS resolver configuration.
 - [ ] Threat intelligence feeds with provenance and expiry.
 - [ ] Anomaly detection as an advisory layer, not an unchecked authority.
 - [ ] Optional management dashboard.
