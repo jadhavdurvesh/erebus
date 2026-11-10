@@ -634,6 +634,77 @@ mod tests {
     }
 
     #[test]
+    fn forwards_udp_queries_to_configured_upstream() {
+        let upstream = UdpSocket::bind("127.0.0.1:0").unwrap();
+        let upstream_address = upstream.local_addr().unwrap();
+        let worker = thread::spawn(move || {
+            let mut buffer = [0u8; 512];
+            let (size, peer) = upstream.recv_from(&mut buffer).unwrap();
+            buffer[2] |= 0x80;
+            buffer[3] |= 0x80;
+            upstream.send_to(&buffer[..size], peer).unwrap();
+        });
+
+        let proxy = DnsProxy::new(
+            test_service(),
+            DnsProxyConfig {
+                upstream: upstream_address,
+                io_timeout: Duration::from_secs(2),
+                ..DnsProxyConfig::default()
+            },
+        )
+        .unwrap();
+        let query = make_query("safe.example", 0x4321);
+        let response = proxy
+            .handle_udp_datagram(&query, "127.0.0.1:53001".parse().unwrap())
+            .unwrap();
+        worker.join().unwrap();
+
+        let parsed = DnsMessage::parse(&response).unwrap();
+        assert!(parsed.is_response());
+        assert_eq!(parsed.header.id, 0x4321);
+        assert_eq!(proxy.metrics().queries_allowed, 1);
+    }
+
+    #[test]
+    fn forwards_tcp_queries_with_dns_length_framing() {
+        let upstream = TcpListener::bind("127.0.0.1:0").unwrap();
+        let upstream_address = upstream.local_addr().unwrap();
+        let worker = thread::spawn(move || {
+            let (mut stream, _) = upstream.accept().unwrap();
+            let mut prefix = [0u8; 2];
+            stream.read_exact(&mut prefix).unwrap();
+            let size = usize::from(u16::from_be_bytes(prefix));
+            let mut query = vec![0u8; size];
+            stream.read_exact(&mut query).unwrap();
+            query[2] |= 0x80;
+            query[3] |= 0x80;
+            stream.write_all(&((query.len() as u16).to_be_bytes())).unwrap();
+            stream.write_all(&query).unwrap();
+        });
+
+        let proxy = DnsProxy::new(
+            test_service(),
+            DnsProxyConfig {
+                upstream: upstream_address,
+                io_timeout: Duration::from_secs(2),
+                ..DnsProxyConfig::default()
+            },
+        )
+        .unwrap();
+        let query = make_query("safe.example", 0x9876);
+        let response = proxy
+            .handle_tcp_message(&query, "127.0.0.1:53002".parse().unwrap())
+            .unwrap();
+        worker.join().unwrap();
+
+        let parsed = DnsMessage::parse(&response).unwrap();
+        assert!(parsed.is_response());
+        assert_eq!(parsed.header.id, 0x9876);
+        assert_eq!(proxy.metrics().queries_allowed, 1);
+    }
+
+    #[test]
     fn response_match_requires_id_question_and_type() {
         let query = DnsMessage::parse(&make_query("example.com", 5)).unwrap();
         let mut response = query.clone();
