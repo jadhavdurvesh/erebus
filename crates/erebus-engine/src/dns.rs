@@ -302,6 +302,53 @@ pub struct DnsExpiryReport {
     pub rate_limit_clients: usize,
 }
 
+impl erebus_dns::DnsProxyPolicy for DnsSecurityService {
+    fn inspect_query(
+        &mut self,
+        exchange: erebus_dns::DnsExchange,
+        message: &DnsMessage,
+        now_ms: u64,
+    ) -> Result<erebus_dns::DnsProxyDecision, erebus_dns::DnsProxyPolicyError> {
+        let inspection = DnsSecurityService::inspect_query(
+            self,
+            exchange.client.ip(),
+            exchange.client.port(),
+            exchange.resolver.ip(),
+            exchange.resolver.port(),
+            exchange.transport,
+            message,
+            now_ms,
+        )
+        .map_err(|_| erebus_dns::DnsProxyPolicyError)?;
+
+        Ok(match inspection.status {
+            DnsQueryStatus::Allowed => erebus_dns::DnsProxyDecision::Allowed,
+            DnsQueryStatus::Blocked => erebus_dns::DnsProxyDecision::Blocked,
+            DnsQueryStatus::RateLimited => erebus_dns::DnsProxyDecision::RateLimited,
+        })
+    }
+
+    fn inspect_response(
+        &mut self,
+        exchange: erebus_dns::DnsExchange,
+        message: &DnsMessage,
+        now_ms: u64,
+    ) -> Result<(), erebus_dns::DnsProxyPolicyError> {
+        DnsSecurityService::inspect_response(
+            self,
+            exchange.resolver.ip(),
+            exchange.resolver.port(),
+            exchange.client.ip(),
+            exchange.client.port(),
+            exchange.transport,
+            message,
+            now_ms,
+        )
+        .map(|_| ())
+        .map_err(|_| erebus_dns::DnsProxyPolicyError)
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
