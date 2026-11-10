@@ -89,8 +89,6 @@ pub enum DnsProxyError {
     Io(#[from] io::Error),
     #[error("DNS message parsing failed: {0}")]
     Parse(#[from] DnsParseError),
-    #[error("DNS security service failed: {0}")]
-    Security(#[from] DnsSecurityError),
     #[error("DNS proxy service lock was poisoned")]
     LockPoisoned,
     #[error("DNS security policy inspection failed")]
