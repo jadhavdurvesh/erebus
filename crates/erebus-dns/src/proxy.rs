@@ -375,7 +375,7 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
                 self.metrics
                     .queries_rate_limited
                     .fetch_add(1, Ordering::Relaxed);
-                return encode_error_response(&query, 2);
+                return self.local_servfail(exchange, &query);
             }
             DnsProxyDecision::Allowed => {
                 self.metrics.queries_allowed.fetch_add(1, Ordering::Relaxed);
@@ -411,7 +411,7 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
             self.metrics
                 .upstream_failures
                 .fetch_add(1, Ordering::Relaxed);
-            return encode_error_response(&query, 2);
+            return self.local_servfail(exchange, &query);
         }
 
         {
@@ -479,6 +479,29 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
         let mut response = vec![0u8; response_len];
         upstream.read_exact(&mut response)?;
         Ok(response)
+    }
+
+    /// Generate SERVFAIL after an upstream fault and retire the matching
+    /// request from the security tracker. Audit/cache errors must not suppress
+    /// the local failure reply.
+    fn local_servfail(
+        &self,
+        exchange: DnsExchange,
+        query: &DnsMessage,
+    ) -> Result<Vec<u8>, DnsProxyError> {
+        let bytes = encode_error_response(query, 2)?;
+        if let Ok(message) = DnsMessage::parse_with_limits(
+            &bytes,
+            ParseLimits {
+                max_message_bytes: self.config.max_message_bytes,
+                ..ParseLimits::default()
+            },
+        ) {
+            if let Ok(mut service) = self.service.lock() {
+                let _ = service.inspect_response(exchange, &message, self.now_ms());
+            }
+        }
+        Ok(bytes)
     }
 
     fn now_ms(&self) -> u64 {
@@ -679,7 +702,7 @@ mod tests {
             stream.read_exact(&mut query).unwrap();
             query[2] |= 0x80;
             query[3] |= 0x80;
-            stream.write_all(&((query.len() as u16).to_be_bytes())).unwrap();
+            stream.write_all(&(query.len() as u16).to_be_bytes()).unwrap();
             stream.write_all(&query).unwrap();
         });
 
