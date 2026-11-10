@@ -297,9 +297,10 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
                         io::ErrorKind::UnexpectedEof
                             | io::ErrorKind::ConnectionReset
                             | io::ErrorKind::TimedOut
-                    ) => {
-                        return Ok(());
-                    }
+                    ) =>
+                {
+                    return Ok(());
+                }
                 Err(error) => return Err(error.into()),
             }
 
