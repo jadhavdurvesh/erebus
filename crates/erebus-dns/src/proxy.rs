@@ -9,9 +9,7 @@ use crate::{
     tracker::DnsTransport,
     wire::{DnsMessage, DnsParseError, ParseLimits},
 };
-use erebus_engine::{
-    DnsQueryStatus, DnsSecurityError, DnsSecurityService,
-};
+
 use std::{
     io::{self, Read, Write},
     net::{SocketAddr, TcpListener, TcpStream, UdpSocket},
@@ -95,6 +93,8 @@ pub enum DnsProxyError {
     Security(#[from] DnsSecurityError),
     #[error("DNS proxy service lock was poisoned")]
     LockPoisoned,
+    #[error("DNS security policy inspection failed")]
+    PolicyInspectionFailed,
     #[error("configured DNS message limit must be between 512 and 65535 bytes")]
     InvalidMessageLimit,
     #[error("DNS response did not match the outstanding query")]
@@ -103,18 +103,65 @@ pub enum DnsProxyError {
     InvalidTcpFrame,
 }
 
-#[derive(Clone)]
-pub struct DnsProxy {
-    service: Arc<Mutex<DnsSecurityService>>,
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct DnsExchange {
+    pub client: SocketAddr,
+    pub resolver: SocketAddr,
+    pub transport: DnsTransport,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DnsProxyDecision {
+    Allowed,
+    Blocked,
+    RateLimited,
+}
+
+#[derive(Debug, Error, Clone, Copy, Eq, PartialEq)]
+#[error("DNS proxy policy inspection failed")]
+pub struct DnsProxyPolicyError;
+
+/// Adapter contract between the independent DNS transport and a policy engine.
+/// Implementations receive already-parsed messages and must not perform I/O.
+pub trait DnsProxyPolicy: Send {
+    fn inspect_query(
+        &mut self,
+        exchange: DnsExchange,
+        message: &DnsMessage,
+        now_ms: u64,
+    ) -> Result<DnsProxyDecision, DnsProxyPolicyError>;
+
+    fn inspect_response(
+        &mut self,
+        exchange: DnsExchange,
+        message: &DnsMessage,
+        now_ms: u64,
+    ) -> Result<(), DnsProxyPolicyError>;
+}
+
+pub struct DnsProxy<P: DnsProxyPolicy> {
+    service: Arc<Mutex<P>>,
     config: DnsProxyConfig,
     started_at: Instant,
     active_tcp_connections: Arc<AtomicUsize>,
     metrics: Arc<AtomicMetrics>,
 }
 
-impl DnsProxy {
+impl<P: DnsProxyPolicy> Clone for DnsProxy<P> {
+    fn clone(&self) -> Self {
+        Self {
+            service: Arc::clone(&self.service),
+            config: self.config,
+            started_at: self.started_at,
+            active_tcp_connections: Arc::clone(&self.active_tcp_connections),
+            metrics: Arc::clone(&self.metrics),
+        }
+    }
+}
+
+impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
     pub fn new(
-        service: DnsSecurityService,
+        service: P,
         config: DnsProxyConfig,
     ) -> Result<Self, DnsProxyError> {
         if !(512..=u16::MAX as usize).contains(&config.max_message_bytes)
@@ -315,34 +362,33 @@ impl DnsProxy {
 
         let upstream = self.config.upstream;
         let now_ms = self.now_ms();
-        let inspection = {
+        let exchange = DnsExchange {
+            client: peer,
+            resolver: upstream,
+            transport,
+        };
+        let decision = {
             let mut service = self
                 .service
                 .lock()
                 .map_err(|_| DnsProxyError::LockPoisoned)?;
-            service.inspect_query(
-                peer.ip(),
-                peer.port(),
-                upstream.ip(),
-                upstream.port(),
-                transport,
-                &query,
-                now_ms,
-            )?
+            service
+                .inspect_query(exchange, &query, now_ms)
+                .map_err(|_| DnsProxyError::PolicyInspectionFailed)?
         };
 
-        match inspection.status {
-            DnsQueryStatus::Blocked => {
+        match decision {
+            DnsProxyDecision::Blocked => {
                 self.metrics.queries_blocked.fetch_add(1, Ordering::Relaxed);
                 return encode_error_response(&query, 5);
             }
-            DnsQueryStatus::RateLimited => {
+            DnsProxyDecision::RateLimited => {
                 self.metrics
                     .queries_rate_limited
                     .fetch_add(1, Ordering::Relaxed);
                 return encode_error_response(&query, 2);
             }
-            DnsQueryStatus::Allowed => {
+            DnsProxyDecision::Allowed => {
                 self.metrics.queries_allowed.fetch_add(1, Ordering::Relaxed);
             }
         }
@@ -384,15 +430,9 @@ impl DnsProxy {
                 .service
                 .lock()
                 .map_err(|_| DnsProxyError::LockPoisoned)?;
-            service.inspect_response(
-                upstream.ip(),
-                upstream.port(),
-                peer.ip(),
-                peer.port(),
-                transport,
-                &response,
-                self.now_ms(),
-            )?;
+            service
+                .inspect_response(exchange, &response, self.now_ms())
+                .map_err(|_| DnsProxyError::PolicyInspectionFailed)?;
         }
 
         Ok(response_bytes)
@@ -509,29 +549,51 @@ fn encode_error_response(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::{
-        config::DnsPolicyDocument,
-        policy::DomainAction,
-        DnsPolicyDocument as PublicDnsPolicyDocument,
-    };
-    use erebus_engine::DnsSecurityConfig;
-    use std::net::{IpAddr, Ipv4Addr};
+    use crate::policy::{normalize_domain, DomainAction, DomainPolicy, DomainRule, DomainPattern, DomainMatchKind};
 
-    const TEST_POLICY: &str = r#"
-schema_version = 1
+    struct TestPolicy {
+        policy: DomainPolicy,
+    }
 
-[policy]
-default = "allow"
+    impl DnsProxyPolicy for TestPolicy {
+        fn inspect_query(
+            &mut self,
+            _exchange: DnsExchange,
+            message: &DnsMessage,
+            _now_ms: u64,
+        ) -> Result<DnsProxyDecision, DnsProxyPolicyError> {
+            let Some(question) = message.single_question() else {
+                return Err(DnsProxyPolicyError);
+            };
+            let domain = normalize_domain(&question.name).map_err(|_| DnsProxyPolicyError)?;
+            let decision = self.policy.evaluate(&domain).map_err(|_| DnsProxyPolicyError)?;
+            Ok(match decision.action {
+                DomainAction::Allow => DnsProxyDecision::Allowed,
+                DomainAction::Block => DnsProxyDecision::Blocked,
+            })
+        }
 
-[[rules]]
-id = "blocked"
-domain = "blocked.example"
-match = "suffix"
-action = "block"
-"#;
+        fn inspect_response(
+            &mut self,
+            _exchange: DnsExchange,
+            _message: &DnsMessage,
+            _now_ms: u64,
+        ) -> Result<(), DnsProxyPolicyError> {
+            Ok(())
+        }
+    }
 
-    fn test_service() -> DnsSecurityService {
-        DnsSecurityService::from_toml(TEST_POLICY, DnsSecurityConfig::default()).unwrap()
+    fn test_service() -> TestPolicy {
+        TestPolicy {
+            policy: DomainPolicy::new(
+                DomainAction::Allow,
+                vec![DomainRule {
+                    id: "blocked".into(),
+                    pattern: DomainPattern::new("blocked.example", DomainMatchKind::Suffix).unwrap(),
+                    action: DomainAction::Block,
+                }],
+            ).unwrap(),
+        }
     }
 
     fn make_query(name: &str, id: u16) -> Vec<u8> {
@@ -609,13 +671,5 @@ action = "block"
         assert_eq!(parsed.header.response_code(), 5);
         assert_eq!(parsed.answers.len(), 0);
         assert_eq!(parsed.questions[0], query.questions[0]);
-    }
-
-    #[test]
-    fn normalizes_proxy_endpoints_and_metrics_types() {
-        let _document: Option<DnsPolicyDocument> = None;
-        let _public: Option<PublicDnsPolicyDocument> = None;
-        let _action = DomainAction::Allow;
-        let _peer = SocketAddr::new(IpAddr::V4(Ipv4Addr::LOCALHOST), 53000);
     }
 }
