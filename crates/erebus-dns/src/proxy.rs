@@ -375,7 +375,7 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
                 self.metrics
                     .queries_rate_limited
                     .fetch_add(1, Ordering::Relaxed);
-                return self.local_servfail(exchange, &query);
+                return encode_error_response(&query, 2);
             }
             DnsProxyDecision::Allowed => {
                 self.metrics.queries_allowed.fetch_add(1, Ordering::Relaxed);
@@ -393,7 +393,7 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
                 self.metrics
                     .upstream_failures
                     .fetch_add(1, Ordering::Relaxed);
-                return encode_error_response(&query, 2);
+                return self.local_servfail(exchange, &query);
             }
         };
 
@@ -403,7 +403,7 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
                 self.metrics
                     .upstream_failures
                     .fetch_add(1, Ordering::Relaxed);
-                return encode_error_response(&query, 2);
+                return self.local_servfail(exchange, &query);
             }
         };
 
