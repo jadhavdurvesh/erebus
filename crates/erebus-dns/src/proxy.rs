@@ -702,7 +702,9 @@ mod tests {
             stream.read_exact(&mut query).unwrap();
             query[2] |= 0x80;
             query[3] |= 0x80;
-            stream.write_all(&(query.len() as u16).to_be_bytes()).unwrap();
+            stream
+                .write_all(&(query.len() as u16).to_be_bytes())
+                .unwrap();
             stream.write_all(&query).unwrap();
         });
 
