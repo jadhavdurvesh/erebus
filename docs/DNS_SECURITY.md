@@ -2,9 +2,9 @@
 
 ## Scope and status
 
-The standalone `erebus-dns` crate provides bounded DNS message parsing, domain policy evaluation, request/response correlation, and positive-response caching. The engine-side `DnsSecurityService` connects those capabilities to per-client rate limiting and the bounded EREBUS security-event journal.
+The standalone `erebus-dns` crate provides bounded DNS message parsing, domain policy evaluation, request/response correlation, positive-response caching, and a standard-library UDP/TCP proxy transport. The engine-side `DnsSecurityService` connects those capabilities to per-client rate limiting and the bounded EREBUS security-event journal through the `DnsProxyPolicy` adapter contract.
 
-This is **not yet a live DNS proxy or system DNS filter**. It does not open sockets, capture packets, forward DNS messages, modify resolver settings, or apply OS firewall rules. A future platform adapter must receive DNS messages, pass parsed messages to the service, then enforce its Allowed/Blocked/RateLimited result.
+A local UDP/TCP DNS proxy is now available through the CLI. It forwards to a configured plain UDP or TCP upstream and applies domain policy before forwarding. It does **not** automatically modify system resolver settings or install OS packet interception. DNS-over-TLS (DoT), DNS-over-HTTPS (DoH), DNSSEC validation, and native system DNS integration are not implemented yet.
 
 ## Workspace components
 
@@ -15,7 +15,9 @@ This is **not yet a live DNS proxy or system DNS filter**. It does not open sock
 | `erebus-dns::config` | Versioned DNS policy TOML |
 | `erebus-dns::tracker` | Request/response correlation |
 | `erebus-dns::cache` | Bounded positive-response cache |
+| `erebus-dns::proxy` | UDP/TCP listener and plain upstream forwarding |
 | `erebus-engine::dns` | Domain policy + client rate limits + tracking + cache + audit events |
+| `erebus-cli dns-serve` | Local loopback DNS proxy launcher |
 
 ## DNS message parser
 
@@ -82,6 +84,40 @@ The cache stores only successful, non-truncated responses with one question and 
 
 It does not cache NXDOMAIN, other error responses, truncated responses, or empty answers. Active entries are not evicted to make room; a full cache returns a capacity error. DNSSEC validation and negative caching are not implemented.
 
+## UDP/TCP DNS proxy
+
+The `DnsProxy` accepts already-bound UDP and TCP listeners and can also process individual complete messages. It:
+
+- Parses and bounds each UDP datagram or two-byte length-prefixed TCP message.
+- Evaluates the query using the supplied `DnsProxyPolicy` implementation.
+- Returns REFUSED for blocked names and SERVFAIL for client rate-limit or upstream failures.
+- Forwards allowed queries to one configured numeric upstream using the same UDP/TCP transport as the client.
+- Checks the upstream response flag, opcode, transaction ID, question name, type, and class before accepting it.
+- Correlates accepted responses with the outstanding query and admits eligible positive answers to the DNS cache.
+- Limits message size, TCP connection count, and socket I/O timeouts.
+- Exposes basic counters for allowed, blocked, rate-limited, malformed, and upstream-failure paths.
+
+The proxy is transport-generic: it depends on a small `DnsProxyPolicy` trait rather than `erebus-engine`. The engine implements that trait, so the DNS transport crate remains reusable by other applications.
+
+Launch it with the offline CLI:
+
+```bash
+cargo run -p erebus-cli -- dns-serve examples/dns-policy.toml
+```
+
+Defaults are intentionally loopback-only: UDP and TCP listen on `127.0.0.1:5300`, forwarding to `1.1.1.1:53`. A different resolver or listener can be supplied explicitly:
+
+```bash
+cargo run -p erebus-cli -- dns-serve examples/dns-policy.toml \
+  --listen-udp 127.0.0.1:5300 \
+  --listen-tcp 127.0.0.1:5300 \
+  --upstream 9.9.9.9:53
+```
+
+The command does not change the machine's DNS configuration. To use it, a test client must explicitly query the local listener. Do not expose it on a public interface without adding deployment-specific access controls and operational hardening.
+
+The proxy currently supports plain UDP and TCP only. DoT and DoH require authenticated TLS/HTTP clients, certificate verification, endpoint/path configuration, and transport-specific tests; they must not be silently downgraded to plaintext.
+
 ## Engine integration
 
 The engine service provides:
@@ -102,6 +138,7 @@ cargo test -p erebus-dns
 cargo test -p erebus-engine
 cargo run -p erebus-cli -- dns-validate examples/dns-policy.toml
 cargo run -p erebus-cli -- dns-export examples/dns-policy.toml
+cargo run -p erebus-cli -- dns-serve examples/dns-policy.toml
 ```
 
-All commands are offline policy tooling. None installs a DNS filter or changes host resolver settings.
+The validation/export commands are offline policy tooling. `dns-serve` opens only the explicitly configured local listeners and upstream sockets; it does not install a DNS filter or change host resolver settings.
