@@ -158,10 +158,7 @@ impl<P: DnsProxyPolicy> Clone for DnsProxy<P> {
 }
 
 impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
-    pub fn new(
-        service: P,
-        config: DnsProxyConfig,
-    ) -> Result<Self, DnsProxyError> {
+    pub fn new(service: P, config: DnsProxyConfig) -> Result<Self, DnsProxyError> {
         if !(512..=u16::MAX as usize).contains(&config.max_message_bytes)
             || config.max_tcp_connections == 0
             || config.connect_timeout.is_zero()
@@ -215,11 +212,7 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
 
     /// Serve UDP requests on an already-bound socket until `shutdown` is set.
     /// A short socket timeout allows the loop to observe shutdown promptly.
-    pub fn run_udp(
-        &self,
-        socket: UdpSocket,
-        shutdown: &AtomicBool,
-    ) -> Result<(), DnsProxyError> {
+    pub fn run_udp(&self, socket: UdpSocket, shutdown: &AtomicBool) -> Result<(), DnsProxyError> {
         socket.set_read_timeout(Some(Duration::from_millis(200)))?;
         let mut buffer = vec![0u8; self.config.max_message_bytes + 1];
 
@@ -273,9 +266,7 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
                     let proxy = self.clone();
                     thread::spawn(move || {
                         let _ = proxy.serve_tcp_client(stream, peer);
-                        proxy
-                            .active_tcp_connections
-                            .fetch_sub(1, Ordering::AcqRel);
+                        proxy.active_tcp_connections.fetch_sub(1, Ordering::AcqRel);
                     });
                 }
                 Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
@@ -306,7 +297,9 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
                         io::ErrorKind::UnexpectedEof
                             | io::ErrorKind::ConnectionReset
                             | io::ErrorKind::TimedOut
-                    ) => return Ok(()),
+                    ) => {
+                        return Ok(());
+                    }
                 Err(error) => return Err(error.into()),
             }
 
@@ -318,8 +311,8 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
             let mut query = vec![0u8; frame_len];
             client.read_exact(&mut query)?;
             let response = self.handle_tcp_message(&query, peer)?;
-            let response_len = u16::try_from(response.len())
-                .map_err(|_| DnsProxyError::InvalidTcpFrame)?;
+            let response_len =
+                u16::try_from(response.len()).map_err(|_| DnsProxyError::InvalidTcpFrame)?;
 
             client.write_all(&response_len.to_be_bytes())?;
             client.write_all(&response)?;
@@ -348,10 +341,7 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
             }
         };
 
-        if query.is_response()
-            || query.header.opcode() != 0
-            || query.single_question().is_none()
-        {
+        if query.is_response() || query.header.opcode() != 0 || query.single_question().is_none() {
             self.metrics
                 .malformed_messages
                 .fetch_add(1, Ordering::Relaxed);
@@ -467,7 +457,10 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
         upstream.set_write_timeout(Some(self.config.io_timeout))?;
 
         let query_len = u16::try_from(query.len()).map_err(|_| {
-            io::Error::new(io::ErrorKind::InvalidInput, "DNS query is too large for TCP framing")
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "DNS query is too large for TCP framing",
+            )
         })?;
         upstream.write_all(&query_len.to_be_bytes())?;
         upstream.write_all(query)?;
@@ -488,7 +481,10 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
     }
 
     fn now_ms(&self) -> u64 {
-        self.started_at.elapsed().as_millis().min(u128::from(u64::MAX)) as u64
+        self.started_at
+            .elapsed()
+            .as_millis()
+            .min(u128::from(u64::MAX)) as u64
     }
 }
 
@@ -513,11 +509,10 @@ fn matches_query(query: &DnsMessage, response: &DnsMessage) -> bool {
 /// Construct a minimal REFUSED/SERVFAIL response that preserves the original
 /// transaction ID, RD/CD request flags, and single question. Additional query
 /// records such as OPT are intentionally not reflected.
-fn encode_error_response(
-    query: &DnsMessage,
-    response_code: u8,
-) -> Result<Vec<u8>, DnsProxyError> {
-    let question = query.single_question().ok_or(DnsProxyError::MismatchedResponse)?;
+fn encode_error_response(query: &DnsMessage, response_code: u8) -> Result<Vec<u8>, DnsProxyError> {
+    let question = query
+        .single_question()
+        .ok_or(DnsProxyError::MismatchedResponse)?;
     let mut output = Vec::with_capacity(12 + question.name.len() + 6);
     output.extend_from_slice(&query.header.id.to_be_bytes());
 
@@ -547,7 +542,9 @@ fn encode_error_response(
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::policy::{normalize_domain, DomainAction, DomainPolicy, DomainRule, DomainPattern, DomainMatchKind};
+    use crate::policy::{
+        normalize_domain, DomainAction, DomainMatchKind, DomainPattern, DomainPolicy, DomainRule,
+    };
 
     struct TestPolicy {
         policy: DomainPolicy,
@@ -564,7 +561,10 @@ mod tests {
                 return Err(DnsProxyPolicyError);
             };
             let domain = normalize_domain(&question.name).map_err(|_| DnsProxyPolicyError)?;
-            let decision = self.policy.evaluate(&domain).map_err(|_| DnsProxyPolicyError)?;
+            let decision = self
+                .policy
+                .evaluate(&domain)
+                .map_err(|_| DnsProxyPolicyError)?;
             Ok(match decision.action {
                 DomainAction::Allow => DnsProxyDecision::Allowed,
                 DomainAction::Block => DnsProxyDecision::Blocked,
@@ -587,10 +587,12 @@ mod tests {
                 DomainAction::Allow,
                 vec![DomainRule {
                     id: "blocked".into(),
-                    pattern: DomainPattern::new("blocked.example", DomainMatchKind::Suffix).unwrap(),
+                    pattern: DomainPattern::new("blocked.example", DomainMatchKind::Suffix)
+                        .unwrap(),
                     action: DomainAction::Block,
                 }],
-            ).unwrap(),
+            )
+            .unwrap(),
         }
     }
 
