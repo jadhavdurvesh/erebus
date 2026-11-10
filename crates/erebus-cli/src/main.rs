@@ -5,8 +5,19 @@
 
 use clap::{Parser, Subcommand};
 use erebus_config::PolicyDocument;
-use erebus_dns::DnsPolicyDocument;
-use std::{fs, path::PathBuf, process::ExitCode};
+use erebus_dns::{DnsPolicyDocument, DnsProxy, DnsProxyConfig};
+use erebus_engine::{DnsSecurityConfig, DnsSecurityService};
+use std::{
+    fs,
+    net::{SocketAddr, TcpListener, UdpSocket},
+    path::PathBuf,
+    process::ExitCode,
+    sync::{
+        atomic::{AtomicBool, Ordering},
+        Arc,
+    },
+    thread,
+};
 
 #[derive(Debug, Parser)]
 #[command(name = "erebus", version, about = "EREBUS network policy tooling")]
@@ -42,6 +53,20 @@ enum Command {
         /// Optional output path. Without this option, output goes to stdout.
         #[arg(short, long)]
         output: Option<PathBuf>,
+    },
+    /// Run the local UDP/TCP DNS proxy using a DNS policy document.
+    DnsServe {
+        /// Input DNS policy file.
+        file: PathBuf,
+        /// UDP client listener (loopback by default).
+        #[arg(long, default_value = "127.0.0.1:5300")]
+        listen_udp: SocketAddr,
+        /// TCP client listener (loopback by default).
+        #[arg(long, default_value = "127.0.0.1:5300")]
+        listen_tcp: SocketAddr,
+        /// Numeric upstream resolver address.
+        #[arg(long, default_value = "1.1.1.1:53")]
+        upstream: SocketAddr,
     },
 }
 
@@ -106,6 +131,55 @@ fn run(arguments: Arguments) -> Result<(), String> {
                 print!("{canonical}");
             }
         }
+        Command::DnsServe {
+            file,
+            listen_udp,
+            listen_tcp,
+            upstream,
+        } => {
+            let source = fs::read_to_string(&file)
+                .map_err(|error| format!("cannot read {}: {error}", file.display()))?;
+            let service = DnsSecurityService::from_toml(
+                &source,
+                DnsSecurityConfig::default(),
+            )
+            .map_err(|error| format!("{}: {error}", file.display()))?;
+            let proxy = DnsProxy::new(
+                service,
+                DnsProxyConfig {
+                    upstream,
+                    ..DnsProxyConfig::default()
+                },
+            )
+            .map_err(|error| format!("cannot configure DNS proxy: {error}"))?;
+
+            let udp_socket = UdpSocket::bind(listen_udp)
+                .map_err(|error| format!("cannot bind UDP listener {listen_udp}: {error}"))?;
+            let tcp_listener = TcpListener::bind(listen_tcp)
+                .map_err(|error| format!("cannot bind TCP listener {listen_tcp}: {error}"))?;
+
+            eprintln!("EREBUS DNS proxy is running.");
+            eprintln!("UDP listener: {listen_udp}");
+            eprintln!("TCP listener: {listen_tcp}");
+            eprintln!("Upstream resolver: {upstream}");
+            eprintln!("Press Ctrl+C to stop. No system resolver settings were changed.");
+
+            let shutdown = Arc::new(AtomicBool::new(false));
+            let udp_shutdown = Arc::clone(&shutdown);
+            let udp_proxy = proxy.clone();
+            let udp_worker = thread::spawn(move || udp_proxy.run_udp(udp_socket, &udp_shutdown));
+
+            let tcp_result = proxy.run_tcp(tcp_listener, &shutdown);
+            shutdown.store(true, Ordering::Release);
+
+            let udp_result = udp_worker
+                .join()
+                .map_err(|_| "UDP DNS proxy worker panicked".to_owned())?
+                .map_err(|error| format!("UDP DNS proxy stopped: {error}"));
+
+            tcp_result.map_err(|error| format!("TCP DNS proxy stopped: {error}"))?;
+            udp_result?;
+        }
     }
 
     Ok(())
@@ -135,5 +209,6 @@ mod tests {
         assert!(output.contains("export"));
         assert!(output.contains("dns-validate"));
         assert!(output.contains("dns-export"));
+        assert!(output.contains("dns-serve"));
     }
 }
