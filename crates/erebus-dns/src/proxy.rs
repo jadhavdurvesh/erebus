@@ -1059,7 +1059,7 @@ mod tests {
             .read_exact(&mut prefix)
             .map_err(|error| format!("DoT TLS handshake or frame-prefix read failed: {error}"))?;
         let length = usize::from(u16::from_be_bytes(prefix));
-        if length < DNS_HEADER_LEN || length > 4096 {
+        if !(DNS_HEADER_LEN..=4096).contains(&length) {
             return Err(format!("invalid DoT DNS frame length: {length}"));
         }
         let mut query = vec![0u8; length];
