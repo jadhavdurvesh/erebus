@@ -42,7 +42,7 @@ The repository's Cargo manifests declare these external dependencies:
 | `rustls` | TLS cryptographic protocol and certificate verification | DoT framing, resolver choice, policy, or fallback rules |
 | `webpki-roots` | Public Web PKI trust-anchor data | EREBUS hostname/endpoint configuration |
 | `url` | HTTPS URL syntax parsing | DoH security policy and resolver bootstrap selection |
-| `rustls-pemfile` (dev only) | Read PEM test fixtures | Production trust decisions |
+| `rcgen` (dev only) | Generate an ephemeral test CA and serverAuth leaf certificate for local DoT/DoH tests | Production certificate or trust decisions |
 
 Transitive dependencies are also brought in by the crates above. The exact resolved graph belongs in `Cargo.lock` once the workspace lockfile is committed and reviewed.
 
