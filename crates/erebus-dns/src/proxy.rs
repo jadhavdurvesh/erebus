@@ -559,7 +559,7 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
             io::Error::new(io::ErrorKind::InvalidInput, "DoH URL is not configured")
         })?;
 
-        let mut response = client
+        let response = client
             .post(endpoint)
             .header(reqwest::header::CONTENT_TYPE, "application/dns-message")
             .header(reqwest::header::ACCEPT, "application/dns-message")
