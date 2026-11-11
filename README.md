@@ -4,7 +4,7 @@
 
 EREBUS is an independently designed firewall and network-security platform. Its first integration target is **Sand OS**. Linux and Windows support will be added through native platform adapters.
 
-> Project status: **Portable security-engine foundation**. Policy evaluation, versioned TOML validation, transactional in-memory reload, bounded connection tracking, structured in-memory events, token-bucket rate limiting, and a reusable DNS security subsystem with a local UDP/TCP proxy are implemented. Native packet interception and automatic OS resolver integration are not implemented yet. The DNS proxy supports UDP, TCP, authenticated DoT, and authenticated DoH upstreams.
+> Project status: **Portable security-engine foundation**. Policy evaluation, versioned TOML validation, transactional in-memory reload, bounded connection tracking, structured in-memory events, token-bucket rate limiting, a reusable DNS security subsystem, and a portable policy-to-adapter enforcement runtime are implemented. No production OS packet adapter is implemented yet. The DNS proxy supports UDP, TCP, authenticated DoT, and authenticated DoH upstreams.
 
 ## Design principles
 
@@ -39,11 +39,11 @@ EREBUS is an independently designed firewall and network-security platform. Its 
                                            Platform
 ```
 
-The core does not directly modify packets or call platform APIs. An adapter obtains a normalized packet/flow description, asks the core for a verdict, and applies that verdict using the platform's supported enforcement interface.
+The core does not directly modify packets or call platform APIs. An adapter obtains a normalized packet/flow description and passes it to the portable enforcement runtime. The runtime selects one policy snapshot, asks the adapter to apply the exact verdict, and records metadata-only audit events. The adapter uses the platform's supported enforcement interface.
 
 The policy core supports ordered rules using direction, protocol, IPv4/IPv6 CIDR source and destination prefixes, source/destination ports, and exact interface names. The `erebus-config` crate validates versioned TOML documents and converts them into policy sets. The engine supports transactional in-memory policy replacement: invalid updates do not replace the active snapshot.
 
-The engine also exposes bounded TCP/UDP connection tracking, a metadata-only in-memory security event journal, and token-bucket rate-limit primitives. The separate `erebus-dns` crate provides bounded DNS parsing, domain policy, request correlation, positive-response caching, and a reusable UDP/TCP proxy. The engine-side DNS service connects those components to per-client rate limits and DNS audit events through a policy adapter interface. The `erebus dns-serve` CLI command runs a loopback proxy without changing system DNS configuration. Native packet interception and automatic resolver integration remain future work.
+The engine also exposes bounded TCP/UDP connection tracking, a metadata-only in-memory security event journal, token-bucket rate-limit primitives, and a platform-neutral enforcement runtime with adapter lifecycle, verdict forwarding, and fail-closed runtime fault handling. The separate `erebus-dns` crate provides bounded DNS parsing, domain policy, request correlation, positive-response caching, and a reusable UDP/TCP proxy. The engine-side DNS service connects those components to per-client rate limits and DNS audit events through a policy adapter interface. The `erebus dns-serve` CLI command runs a loopback proxy without changing system DNS configuration. Native packet interception and automatic resolver integration remain future work.
 
 ## Repository layout
 
@@ -54,7 +54,7 @@ The engine also exposes bounded TCP/UDP connection tracking, a metadata-only in-
 │   ├── erebus-types/       # Shared identifiers and normalized traffic metadata
 │   ├── erebus-policy/      # Deterministic policy evaluation
 │   ├── erebus-config/      # Versioned TOML schema and validation
-│   ├── erebus-engine/      # Policy snapshots and security-state primitives
+│   ├── erebus-engine/      # Policy snapshots, security state, enforcement runtime
 │   ├── erebus-dns/         # Reusable DNS parsing, policy, tracking, cache, UDP/TCP proxy
 │   ├── erebus-adapter-api/ # Contract implemented by OS adapters
 │   └── erebus-cli/         # Offline validate/export tooling
@@ -66,6 +66,8 @@ The engine also exposes bounded TCP/UDP connection tracking, a metadata-only in-
 │   ├── SECURITY_EVENTS.md
 │   ├── RATE_LIMITING.md
 │   ├── DNS_SECURITY.md
+│   ├── ENFORCEMENT_RUNTIME.md
+│   ├── OWNERSHIP_AND_DEPENDENCIES.md
 │   ├── ROADMAP.md
 │   └── PLATFORM_ADAPTERS.md
 ├── examples/
@@ -109,7 +111,7 @@ The CLI accepts `--output path` with `export` and `dns-export` to write canonica
 
 ## Safety notice
 
-EREBUS is experimental software. Its portable decision and state-management primitives are not a functioning firewall. The connection tracker uses simplified TCP state observations and is not a replacement for a kernel TCP stack. The DNS service evaluates parsed messages but does not intercept or forward live DNS traffic. The event journal is volatile in-memory storage, not a durable audit log. Do not rely on EREBUS to protect a production machine or expose network services.
+EREBUS is experimental software. Its portable decision and state-management primitives are not a functioning firewall. The connection tracker uses simplified TCP state observations and is not a replacement for a kernel TCP stack. The enforcement runtime is orchestration only; without a native adapter it cannot capture or block operating-system traffic. The DNS service includes a local proxy but does not automatically intercept system DNS traffic. The event journal is volatile in-memory storage, not a durable audit log. Do not rely on EREBUS to protect a production machine or expose network services.
 
 ## Roadmap
 
