@@ -9,12 +9,16 @@
 
 pub mod connection;
 pub mod dns;
+pub mod enforcement;
 pub mod events;
 pub mod rate_limit;
 
 pub use dns::{
     DnsExpiryReport, DnsQueryInspection, DnsQueryStatus, DnsResponseInspection, DnsSecurityConfig,
     DnsSecurityError, DnsSecurityService,
+};
+pub use enforcement::{
+    EnforcementMetrics, EnforcementResult, EnforcementRuntime, EnforcementRuntimeError,
 };
 
 pub use connection::{
