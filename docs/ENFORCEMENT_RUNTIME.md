@@ -13,8 +13,9 @@ The runtime accepts a validated `TrafficDescriptor`, evaluates it against one im
 3. The runtime verifies that it is initialized and the adapter reports `Ready`.
 4. The runtime obtains one immutable policy snapshot and evaluates the descriptor.
 5. If policy allows, the runtime consumes one token from a bounded bucket keyed by the remote peer IP (source for inbound traffic, destination for outbound traffic). A depleted or unavailable limiter changes the verdict to Deny.
-6. For packet-level calls that remain allowed, the runtime updates the bounded connection tracker. TCP packets require validated TCP flags. Missing flags, tracker capacity exhaustion, or tracker errors change the verdict to Deny rather than allowing untracked traffic.
-7. The runtime attempts to record connection creation/state-transition events and then a `PolicyDecision` event.
+6. Before each descriptor/packet evaluation, the runtime expires stale flows and prunes idle client buckets. A host timer should also call `maintain()` periodically so cleanup continues while traffic is idle.
+7. For packet-level calls that remain allowed, the runtime updates the bounded connection tracker. TCP packets require validated TCP flags. Missing flags, tracker capacity exhaustion, or tracker errors change the verdict to Deny rather than allowing untracked traffic.
+8. The runtime records peer-specific rate-limit or connection-tracking-failure events, then connection creation/state-transition events and a `PolicyDecision` event.
 8. The runtime sends the final decision and flow-enriched descriptor to `PlatformAdapter::enforce`.
 9. On success, the caller receives the decision, policy generation, and optional audit sequence.
 10. On adapter failure, the runtime records an enforcement-failure event where possible, faults itself, and refuses subsequent traffic until explicit shutdown and successful reinitialization.
@@ -27,7 +28,8 @@ The runtime accepts a validated `TrafficDescriptor`, evaluates it against one im
 - Rate-limit exhaustion or rate-limiter errors produce a Deny decision. The runtime never silently bypasses an unavailable limiter.
 - Connection-tracker errors and capacity exhaustion produce a Deny decision for packet-level calls. Existing active flows are not evicted to make room.
 - A policy Deny is final and does not consume a rate-limit token or create/modify flow state.
-- `maintain(monotonic_timestamp_ms)` expires flow entries, prunes idle client buckets, and records flow-expiration events. The host service must call it periodically; it is not a background thread.
+- `maintain(monotonic_timestamp_ms)` expires flow entries, prunes idle client buckets, and records flow-expiration events. The runtime also calls it before each evaluation; the host service must still call it periodically to clean up during idle periods. It is not a background thread.
+- Flow IDs remain monotonic across adapter shutdown/reinitialization while the event journal is retained, preventing historical event ambiguity.
 - Successful adapter shutdown clears tracked flows and rate-limit buckets before a subsequent initialization.
 - If the adapter independently leaves `Ready`, the next runtime request faults and is refused.
 - A failed shutdown leaves the runtime faulted.
