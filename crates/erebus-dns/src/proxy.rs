@@ -203,8 +203,7 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
                     .https_url
                     .as_deref()
                     .ok_or(DnsProxyError::InvalidHttpsUrl)?;
-                let url = url::Url::parse(raw_url)
-                    .map_err(|_| DnsProxyError::InvalidHttpsUrl)?;
+                let url = url::Url::parse(raw_url).map_err(|_| DnsProxyError::InvalidHttpsUrl)?;
                 if url.scheme() != "https"
                     || url.host_str().is_none()
                     || !url.username().is_empty()
@@ -506,21 +505,20 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
     }
 
     fn forward_dot(&self, query: &[u8]) -> io::Result<Vec<u8>> {
-        let server_name = self
-            .config
-            .tls_server_name
-            .as_deref()
-            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "missing DoT TLS server name"))?;
-        let server_name = rustls::pki_types::ServerName::try_from(server_name.to_owned())
-            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid DoT TLS server name"))?;
+        let server_name = self.config.tls_server_name.as_deref().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "missing DoT TLS server name")
+        })?;
+        let server_name =
+            rustls::pki_types::ServerName::try_from(server_name.to_owned()).map_err(|_| {
+                io::Error::new(io::ErrorKind::InvalidInput, "invalid DoT TLS server name")
+            })?;
 
         let tcp = TcpStream::connect_timeout(&self.config.upstream, self.config.connect_timeout)?;
         tcp.set_read_timeout(Some(self.config.io_timeout))?;
         tcp.set_write_timeout(Some(self.config.io_timeout))?;
 
-        let roots = rustls::RootCertStore::from_iter(
-            webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
-        );
+        let roots =
+            rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
         let tls_config = rustls::ClientConfig::builder()
             .with_root_certificates(roots)
             .with_no_client_auth();
@@ -529,7 +527,10 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
         let mut stream = rustls::StreamOwned::new(connection, tcp);
 
         let query_len = u16::try_from(query.len()).map_err(|_| {
-            io::Error::new(io::ErrorKind::InvalidInput, "DNS query exceeds TCP frame size")
+            io::Error::new(
+                io::ErrorKind::InvalidInput,
+                "DNS query exceeds TCP frame size",
+            )
         })?;
         stream.write_all(&query_len.to_be_bytes())?;
         stream.write_all(query)?;
@@ -974,7 +975,10 @@ mod tests {
                 ..DnsProxyConfig::default()
             },
         );
-        assert!(matches!(credential_url, Err(DnsProxyError::InvalidHttpsUrl)));
+        assert!(matches!(
+            credential_url,
+            Err(DnsProxyError::InvalidHttpsUrl)
+        ));
 
         let fragment_url = DnsProxy::new(
             test_service(),
