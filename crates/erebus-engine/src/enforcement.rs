@@ -706,7 +706,7 @@ default = "allow"
         assert_eq!(second.decision.verdict, Verdict::Deny);
         assert!(matches!(
             second.decision.reason,
-            DecisionReason::RateLimited { peer, .. } if peer == "198.51.100.20".parse().unwrap()
+            DecisionReason::RateLimited { peer, .. } if peer == "198.51.100.20".parse::<IpAddr>().unwrap()
         ));
         assert_eq!(runtime.metrics().rate_limited, 1);
         assert_eq!(
