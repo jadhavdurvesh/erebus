@@ -4,7 +4,9 @@
 
 The standalone `erebus-dns` crate provides bounded DNS message parsing, domain policy evaluation, request/response correlation, positive-response caching, and a standard-library UDP/TCP proxy transport. The engine-side `DnsSecurityService` connects those capabilities to per-client rate limiting and the bounded EREBUS security-event journal through the `DnsProxyPolicy` adapter contract.
 
-A local UDP/TCP DNS proxy is now available through the CLI. It forwards to a configured plain UDP or TCP upstream and applies domain policy before forwarding. It does **not** automatically modify system resolver settings or install OS packet interception. DNS-over-TLS (DoT), DNS-over-HTTPS (DoH), DNSSEC validation, and native system DNS integration are not implemented yet.
+A local UDP/TCP DNS proxy is available through the CLI. Its upstream can use classic UDP/TCP, DNS-over-TLS (DoT), or DNS-over-HTTPS (DoH). DoT uses rustls and a public Web PKI root set with certificate hostname verification. DoH uses HTTPS with certificate verification, no redirects, no ambient proxy configuration, strict `application/dns-message` content-type checks, a bounded response body, and a numeric bootstrap address. Encrypted modes do not fall back to plaintext.
+
+The proxy does **not** automatically modify system resolver settings or install OS packet interception. DNSSEC validation and native system DNS integration are not implemented yet.
 
 ## Workspace components
 
@@ -15,7 +17,7 @@ A local UDP/TCP DNS proxy is now available through the CLI. It forwards to a con
 | `erebus-dns::config` | Versioned DNS policy TOML |
 | `erebus-dns::tracker` | Request/response correlation |
 | `erebus-dns::cache` | Bounded positive-response cache |
-| `erebus-dns::proxy` | UDP/TCP listener and plain upstream forwarding |
+| `erebus-dns::proxy` | UDP/TCP listener with UDP, TCP, DoT, and DoH upstreams |
 | `erebus-engine::dns` | Domain policy + client rate limits + tracking + cache + audit events |
 | `erebus-cli dns-serve` | Local loopback DNS proxy launcher |
 
@@ -116,7 +118,36 @@ cargo run -p erebus-cli -- dns-serve examples/dns-policy.toml \
 
 The command does not change the machine's DNS configuration. To use it, a test client must explicitly query the local listener. Do not expose it on a public interface without adding deployment-specific access controls and operational hardening.
 
-The proxy currently supports plain UDP and TCP only. DoT and DoH require authenticated TLS/HTTP clients, certificate verification, endpoint/path configuration, and transport-specific tests; they must not be silently downgraded to plaintext.
+### Encrypted upstream configuration
+
+The CLI supports four upstream protocol values:
+
+| Protocol | Required options | Typical upstream |
+| --- | --- | --- |
+| `udp` | Numeric `--upstream` | `1.1.1.1:53` |
+| `tcp` | Numeric `--upstream` | `1.1.1.1:53` |
+| `dot` | Numeric `--upstream` and `--tls-server-name` | `1.1.1.1:853` |
+| `doh` | Numeric bootstrap `--upstream` and `--https-url` | `1.1.1.1:443` + HTTPS URL |
+
+Examples:
+
+```bash
+# DNS-over-TLS (TLS certificate and cloudflare-dns.com name are verified)
+cargo run -p erebus-cli -- dns-serve examples/dns-policy.toml \
+  --upstream 1.1.1.1:853 \
+  --upstream-protocol dot \
+  --tls-server-name cloudflare-dns.com
+
+# DNS-over-HTTPS (URL hostname is verified; resolution is pinned to 1.1.1.1)
+cargo run -p erebus-cli -- dns-serve examples/dns-policy.toml \
+  --upstream 1.1.1.1:443 \
+  --upstream-protocol doh \
+  --https-url https://cloudflare-dns.com/dns-query
+```
+
+For DoT, rustls validates the upstream certificate chain against the bundled public root set and verifies the configured server name. For DoH, reqwest uses rustls-backed HTTPS validation, disables redirects and environment proxies, and pins the URL hostname to the numeric bootstrap IP supplied with `--upstream`. This avoids needing a system DNS lookup to find the DoH server.
+
+When an encrypted transport is selected, any connection, TLS, HTTP, certificate, response-type, or message-validation error returns SERVFAIL. It never retries the query over plaintext UDP/TCP. Custom private CAs, certificate pinning, DoH GET mode, HTTP/3, DoQ, DNSSEC validation, and DoT/DoH listener-side transports are not implemented yet.
 
 ## Engine integration
 
