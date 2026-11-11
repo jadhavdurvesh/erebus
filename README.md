@@ -4,7 +4,7 @@
 
 EREBUS is an independently designed firewall and network-security platform. Its first integration target is **Sand OS**. Linux and Windows support will be added through native platform adapters.
 
-> Project status: **Portable security-engine foundation**. Policy evaluation, versioned TOML validation, transactional in-memory reload, bounded connection tracking, structured in-memory events, token-bucket rate limiting, and a reusable DNS security subsystem with a local UDP/TCP proxy are implemented. Native packet interception, OS resolver integration, DoT, and DoH are not implemented yet.
+> Project status: **Portable security-engine foundation**. Policy evaluation, versioned TOML validation, transactional in-memory reload, bounded connection tracking, structured in-memory events, token-bucket rate limiting, and a reusable DNS security subsystem with a local UDP/TCP proxy are implemented. Native packet interception and automatic OS resolver integration are not implemented yet. The DNS proxy supports UDP, TCP, authenticated DoT, and authenticated DoH upstreams.
 
 ## Design principles
 
@@ -97,9 +97,15 @@ cargo run -p erebus-cli -- dns-export examples/dns-policy.toml
 
 # Run loopback UDP/TCP proxy (does not change OS DNS settings)
 cargo run -p erebus-cli -- dns-serve examples/dns-policy.toml
+
+# Run with authenticated DNS-over-TLS
+cargo run -p erebus-cli -- dns-serve examples/dns-policy.toml --upstream 1.1.1.1:853 --upstream-protocol dot --tls-server-name cloudflare-dns.com
+
+# Run with authenticated DNS-over-HTTPS
+cargo run -p erebus-cli -- dns-serve examples/dns-policy.toml --upstream 1.1.1.1:443 --upstream-protocol doh --https-url https://cloudflare-dns.com/dns-query
 ```
 
-The CLI accepts `--output path` with `export` and `dns-export` to write canonical TOML to a file. `dns-serve` opens an explicit local proxy listener but does not change host firewall or system DNS settings.
+The CLI accepts `--output path` with `export` and `dns-export` to write canonical TOML to a file. `dns-serve` opens an explicit local proxy listener but does not change host firewall or system DNS settings. Encrypted upstream modes verify certificates and hostnames, and never fall back to plaintext.
 
 ## Safety notice
 
