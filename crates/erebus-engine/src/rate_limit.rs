@@ -221,6 +221,12 @@ where
         self.config.max_keys
     }
 
+    /// Clear all keyed buckets and reset monotonic-time tracking.
+    pub fn clear(&mut self) {
+        self.buckets.clear();
+        self.last_observed_ms = None;
+    }
+
     pub fn check(&mut self, key: K, now_ms: u64) -> Result<bool, RateLimitError> {
         self.check_cost(key, now_ms, 1)
     }
