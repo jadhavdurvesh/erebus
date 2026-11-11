@@ -87,14 +87,16 @@ where
             return Err(EnforcementRuntimeError::Faulted);
         }
 
+        // Mark the adapter as requiring shutdown before initialization starts:
+        // initialize may partially acquire OS resources before returning an error.
+        self.initialized = true;
         if let Err(error) = self.adapter.initialize() {
             self.faulted = true;
             return Err(EnforcementRuntimeError::AdapterInitialize(error));
         }
 
-        // Mark initialized even when the adapter reports a bad state, so the
-        // caller can explicitly invoke shutdown to recover partial resources.
-        self.initialized = true;
+        // The caller can now explicitly shut down even if the adapter reports
+        // an unexpected state after a nominally successful initialization.
         let state = self.adapter.state();
         if state != AdapterState::Ready {
             self.faulted = true;
@@ -529,6 +531,8 @@ default = "allow"
             Err(EnforcementRuntimeError::AdapterInitialize(MockError::Initialize))
         ));
         assert!(init_failure.is_faulted());
+        init_failure.shutdown().unwrap();
+        assert!(!init_failure.is_faulted());
 
         let mut shutdown_failure = make_runtime(
             DENY_ALL,
