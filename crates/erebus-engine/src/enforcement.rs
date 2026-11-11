@@ -5,14 +5,13 @@
 //! operating-system-specific act of applying a verdict.
 
 use crate::{
-    ConnectionTracker, EventJournal, EventJournalError, KeyedRateLimiter,
-    KeyedRateLimiterConfig, RateLimitError, SecurityEvent, SecurityEventKind, TcpFlags,
-    TrackerConfig, TrackerError,
+    ConnectionTracker, EventJournal, EventJournalError, KeyedRateLimiter, KeyedRateLimiterConfig,
+    RateLimitError, SecurityEvent, SecurityEventKind, TcpFlags, TrackerConfig, TrackerError,
 };
 use erebus_adapter_api::{AdapterState, PlatformAdapter};
 use erebus_types::{DecisionReason, Direction, FlowId, PolicyDecision, TrafficDescriptor, Verdict};
-use std::net::IpAddr;
 use std::error::Error;
+use std::net::IpAddr;
 use thiserror::Error;
 
 #[derive(Clone, Copy, Debug, Default, Eq, PartialEq)]
@@ -133,8 +132,8 @@ where
         adapter: A,
         config: EnforcementRuntimeConfig,
     ) -> Result<Self, EnforcementRuntimeError<A::Error>> {
-        let tracker = ConnectionTracker::new(config.tracker)
-            .map_err(EnforcementRuntimeError::TrackerInit)?;
+        let tracker =
+            ConnectionTracker::new(config.tracker).map_err(EnforcementRuntimeError::TrackerInit)?;
         let client_limits = KeyedRateLimiter::new(config.client_rate_limit)
             .map_err(EnforcementRuntimeError::RateLimitInit)?;
 
@@ -362,11 +361,7 @@ where
         };
 
         for flow_id in &expired_flows {
-            let _ = self.record_event(
-                now_ms,
-                Some(*flow_id),
-                SecurityEventKind::ConnectionExpired,
-            );
+            let _ = self.record_event(now_ms, Some(*flow_id), SecurityEventKind::ConnectionExpired);
         }
 
         Ok(EnforcementMaintenanceReport {
@@ -665,10 +660,9 @@ default = "allow"
             .unwrap();
 
         let events = runtime.events();
-        assert!(events.iter().any(|event| matches!(
-            event.kind,
-            SecurityEventKind::ConnectionCreated
-        )));
+        assert!(events
+            .iter()
+            .any(|event| matches!(event.kind, SecurityEventKind::ConnectionCreated)));
         let transitions = events
             .iter()
             .filter_map(|event| match &event.kind {
@@ -677,11 +671,14 @@ default = "allow"
             })
             .collect::<Vec<_>>();
         assert_eq!(transitions, vec!["Tcp(SynReceived)", "Tcp(Established)"]);
-        assert!(events.iter().filter(|event| matches!(
-            event.kind,
-            SecurityEventKind::ConnectionCreated
-                | SecurityEventKind::ConnectionStateChanged { .. }
-        )).all(|event| event.flow_id == Some(FlowId(1))));
+        assert!(events
+            .iter()
+            .filter(|event| matches!(
+                event.kind,
+                SecurityEventKind::ConnectionCreated
+                    | SecurityEventKind::ConnectionStateChanged { .. }
+            ))
+            .all(|event| event.flow_id == Some(FlowId(1))));
     }
 
     #[test]
@@ -711,11 +708,14 @@ default = "allow"
             DecisionReason::RateLimited { peer, .. } if peer == "198.51.100.20".parse().unwrap()
         ));
         assert_eq!(runtime.metrics().rate_limited, 1);
-        assert_eq!(runtime.adapter().applied, vec![Verdict::Allow, Verdict::Deny]);
-        assert!(runtime.events().iter().any(|event| matches!(
-            event.kind,
-            SecurityEventKind::RateLimitExceeded { .. }
-        )));
+        assert_eq!(
+            runtime.adapter().applied,
+            vec![Verdict::Allow, Verdict::Deny]
+        );
+        assert!(runtime
+            .events()
+            .iter()
+            .any(|event| matches!(event.kind, SecurityEventKind::RateLimitExceeded { .. })));
     }
 
     #[test]
@@ -744,7 +744,11 @@ default = "allow"
         );
 
         assert_eq!(
-            runtime.evaluate_packet(&first, None, 0).unwrap().decision.verdict,
+            runtime
+                .evaluate_packet(&first, None, 0)
+                .unwrap()
+                .decision
+                .verdict,
             Verdict::Allow
         );
         let blocked = runtime.evaluate_packet(&second, None, 1).unwrap();
@@ -755,7 +759,10 @@ default = "allow"
         ));
         assert_eq!(runtime.metrics().tracking_failures, 1);
         assert_eq!(runtime.active_flows(), 1);
-        assert_eq!(runtime.adapter().applied, vec![Verdict::Allow, Verdict::Deny]);
+        assert_eq!(
+            runtime.adapter().applied,
+            vec![Verdict::Allow, Verdict::Deny]
+        );
     }
 
     #[test]
@@ -787,10 +794,10 @@ default = "allow"
         let second = runtime.maintain(15).unwrap();
         assert_eq!(second.pruned_rate_limit_clients, 1);
         assert_eq!(runtime.tracked_clients(), 0);
-        assert!(runtime.events().iter().any(|event| matches!(
-            event.kind,
-            SecurityEventKind::ConnectionExpired
-        )));
+        assert!(runtime
+            .events()
+            .iter()
+            .any(|event| matches!(event.kind, SecurityEventKind::ConnectionExpired)));
     }
 
     #[test]
@@ -820,7 +827,11 @@ default = "allow"
 
         runtime.initialize().unwrap();
         assert_eq!(
-            runtime.evaluate_packet(&packet, None, 1).unwrap().decision.verdict,
+            runtime
+                .evaluate_packet(&packet, None, 1)
+                .unwrap()
+                .decision
+                .verdict,
             Verdict::Allow
         );
     }
