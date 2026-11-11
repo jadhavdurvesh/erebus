@@ -960,31 +960,31 @@ mod tests {
         rustls::StreamOwned::new(connection, socket)
     }
 
-    fn serve_dot_once(listener: TcpListener) {
+    fn serve_dot_once(listener: TcpListener) -> bool {
         let Ok((socket, _)) = listener.accept() else {
-            return;
+            return false;
         };
         let mut stream = tls_stream(socket);
         let mut prefix = [0u8; 2];
         if stream.read_exact(&mut prefix).is_err() {
-            return;
+            return false;
         }
         let length = usize::from(u16::from_be_bytes(prefix));
         if length < DNS_HEADER_LEN || length > 4096 {
-            return;
+            return false;
         }
         let mut query = vec![0u8; length];
         if stream.read_exact(&mut query).is_err() {
-            return;
+            return false;
         }
         query[2] |= 0x80;
         query[3] |= 0x80;
         let Ok(length) = u16::try_from(query.len()) else {
-            return;
+            return false;
         };
-        let _ = stream.write_all(&length.to_be_bytes());
-        let _ = stream.write_all(&query);
-        let _ = stream.flush();
+        stream.write_all(&length.to_be_bytes()).is_ok()
+            && stream.write_all(&query).is_ok()
+            && stream.flush().is_ok()
     }
 
     fn serve_doh_once(listener: TcpListener) -> bool {
