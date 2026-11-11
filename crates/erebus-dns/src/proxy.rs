@@ -965,8 +965,25 @@ mod tests {
         rustls::StreamOwned::new(connection, socket)
     }
 
+    fn accept_test_connection(listener: &TcpListener) -> Option<TcpStream> {
+        listener.set_nonblocking(true).ok()?;
+        let deadline = Instant::now() + Duration::from_secs(5);
+        loop {
+            match listener.accept() {
+                Ok((socket, _)) => return Some(socket),
+                Err(error) if error.kind() == io::ErrorKind::WouldBlock => {
+                    if Instant::now() >= deadline {
+                        return None;
+                    }
+                    thread::sleep(Duration::from_millis(10));
+                }
+                Err(_) => return None,
+            }
+        }
+    }
+
     fn serve_dot_once(listener: TcpListener) -> bool {
-        let Ok((socket, _)) = listener.accept() else {
+        let Some(socket) = accept_test_connection(&listener) else {
             return false;
         };
         let mut stream = tls_stream(socket);
@@ -993,7 +1010,7 @@ mod tests {
     }
 
     fn serve_doh_once(listener: TcpListener) -> bool {
-        let Ok((socket, _)) = listener.accept() else {
+        let Some(socket) = accept_test_connection(&listener) else {
             return false;
         };
         let mut stream = tls_stream(socket);
