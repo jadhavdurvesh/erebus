@@ -223,20 +223,24 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
                 .map_err(|_| DnsProxyError::InvalidHttpsUrl)?;
             let host = url.host_str().expect("validated HTTPS host");
             let mut builder = reqwest::blocking::Client::builder()
-                    .https_only(true)
-                    .no_proxy()
-                    .redirect(reqwest::redirect::Policy::none())
-                    .connect_timeout(config.connect_timeout)
-                    .timeout(config.io_timeout)
-                    // Bootstrap the HTTPS hostname using the configured numeric
-                    // resolver address to avoid recursive system DNS lookups.
-                    .resolve_to_addrs(host, &[config.upstream]);
+                .https_only(true)
+                .no_proxy()
+                .redirect(reqwest::redirect::Policy::none())
+                .connect_timeout(config.connect_timeout)
+                .timeout(config.io_timeout)
+                // Bootstrap the HTTPS hostname using the configured numeric
+                // resolver address to avoid recursive system DNS lookups.
+                .resolve_to_addrs(host, &[config.upstream]);
             for anchor in &config.additional_trust_anchors {
                 let certificate = reqwest::Certificate::from_der(anchor)
                     .map_err(|_| DnsProxyError::InvalidHttpsUrl)?;
                 builder = builder.add_root_certificate(certificate);
             }
-            Some(builder.build().map_err(|_| DnsProxyError::InvalidHttpsUrl)?)
+            Some(
+                builder
+                    .build()
+                    .map_err(|_| DnsProxyError::InvalidHttpsUrl)?,
+            )
         } else {
             None
         };
@@ -526,9 +530,7 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
         for anchor in &self.config.additional_trust_anchors {
             roots
                 .add(rustls::pki_types::CertificateDer::from(anchor.clone()))
-                .map_err(|error| {
-                    io::Error::new(io::ErrorKind::InvalidInput, error.to_string())
-                })?;
+                .map_err(|error| io::Error::new(io::ErrorKind::InvalidInput, error.to_string()))?;
         }
         let tls_config = rustls::ClientConfig::builder()
             .with_root_certificates(roots)
@@ -939,8 +941,7 @@ mod tests {
         let certificates = rustls_pemfile::certs(&mut cert_cursor)
             .collect::<Result<Vec<_>, _>>()
             .expect("fixture certificates parse");
-        let mut key_cursor =
-            std::io::Cursor::new(include_bytes!("../tests/fixtures/test-key.pem"));
+        let mut key_cursor = std::io::Cursor::new(include_bytes!("../tests/fixtures/test-key.pem"));
         let key = rustls_pemfile::private_key(&mut key_cursor)
             .expect("fixture key parses")
             .expect("fixture private key exists");
@@ -954,8 +955,12 @@ mod tests {
     }
 
     fn tls_stream(socket: TcpStream) -> rustls::StreamOwned<rustls::ServerConnection, TcpStream> {
-        socket.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
-        socket.set_write_timeout(Some(Duration::from_secs(3))).unwrap();
+        socket
+            .set_read_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
+        socket
+            .set_write_timeout(Some(Duration::from_secs(3)))
+            .unwrap();
         let connection = rustls::ServerConnection::new(test_tls_server_config()).unwrap();
         rustls::StreamOwned::new(connection, socket)
     }
@@ -1009,8 +1014,12 @@ mod tests {
 
         let header_text = String::from_utf8_lossy(&headers);
         if !header_text.starts_with("POST /dns-query HTTP/1.1")
-            || !header_text.to_ascii_lowercase().contains("content-type: application/dns-message")
-            || !header_text.to_ascii_lowercase().contains("accept: application/dns-message")
+            || !header_text
+                .to_ascii_lowercase()
+                .contains("content-type: application/dns-message")
+            || !header_text
+                .to_ascii_lowercase()
+                .contains("accept: application/dns-message")
         {
             return false;
         }
@@ -1115,7 +1124,13 @@ mod tests {
                 "127.0.0.1:53005".parse().unwrap(),
             )
             .unwrap();
-        assert_eq!(DnsMessage::parse(&untrusted).unwrap().header.response_code(), 2);
+        assert_eq!(
+            DnsMessage::parse(&untrusted)
+                .unwrap()
+                .header
+                .response_code(),
+            2
+        );
         let _ = worker.join();
 
         let listener = TcpListener::bind("127.0.0.1:0").unwrap();
@@ -1139,7 +1154,13 @@ mod tests {
                 "127.0.0.1:53006".parse().unwrap(),
             )
             .unwrap();
-        assert_eq!(DnsMessage::parse(&wrong_name).unwrap().header.response_code(), 2);
+        assert_eq!(
+            DnsMessage::parse(&wrong_name)
+                .unwrap()
+                .header
+                .response_code(),
+            2
+        );
         let _ = worker.join();
     }
 
@@ -1231,7 +1252,10 @@ mod tests {
             )
             .unwrap();
         assert_eq!(
-            DnsMessage::parse(&wrong_name).unwrap().header.response_code(),
+            DnsMessage::parse(&wrong_name)
+                .unwrap()
+                .header
+                .response_code(),
             2
         );
         let _ = worker.join();
