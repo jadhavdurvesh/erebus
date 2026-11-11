@@ -983,15 +983,12 @@ mod tests {
                 .expect("self-sign test CA certificate");
 
             let server_key = rcgen::KeyPair::generate().expect("generate test server key");
-            let mut server_params = rcgen::CertificateParams::new(vec![
-                "dot.test".to_owned(),
-                "doh.test".to_owned(),
-            ])
-            .expect("create server certificate parameters");
+            let mut server_params =
+                rcgen::CertificateParams::new(vec!["dot.test".to_owned(), "doh.test".to_owned()])
+                    .expect("create server certificate parameters");
             server_params.is_ca = rcgen::IsCa::ExplicitNoCa;
             server_params.key_usages = vec![rcgen::KeyUsagePurpose::DigitalSignature];
-            server_params.extended_key_usages =
-                vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
+            server_params.extended_key_usages = vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
             let server_certificate = server_params
                 .signed_by(&server_key, &ca_certificate, &ca_key)
                 .expect("sign server certificate with test CA");
@@ -1010,13 +1007,10 @@ mod tests {
 
     fn test_tls_server_config() -> Arc<rustls::ServerConfig> {
         let fixtures = test_tls_fixtures();
-        let certificate = rustls::pki_types::CertificateDer::from(
-            fixtures.server_certificate.clone(),
-        );
+        let certificate =
+            rustls::pki_types::CertificateDer::from(fixtures.server_certificate.clone());
         let private_key = rustls::pki_types::PrivateKeyDer::Pkcs8(
-            rustls::pki_types::PrivatePkcs8KeyDer::from(
-                fixtures.server_private_key.clone(),
-            ),
+            rustls::pki_types::PrivatePkcs8KeyDer::from(fixtures.server_private_key.clone()),
         );
 
         let mut config = rustls::ServerConfig::builder()
