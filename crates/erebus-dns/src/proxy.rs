@@ -13,7 +13,7 @@ use std::{
     net::{SocketAddr, TcpListener, TcpStream, UdpSocket},
     sync::{
         atomic::{AtomicBool, AtomicU64, AtomicUsize, Ordering},
-        Arc, Mutex,
+        Arc, Mutex, OnceLock,
     },
     thread,
     time::{Duration, Instant},
@@ -935,6 +935,7 @@ mod tests {
             test_service(),
             DnsProxyConfig {
                 upstream: upstream_address,
+                upstream_protocol: DnsUpstreamProtocol::Tcp,
                 io_timeout: Duration::from_secs(2),
                 ..DnsProxyConfig::default()
             },
@@ -955,31 +956,73 @@ mod tests {
         assert_eq!(proxy.metrics().queries_allowed, 1);
     }
 
+    struct TestTlsFixtures {
+        trust_anchor: Vec<u8>,
+        server_certificate: Vec<u8>,
+        server_private_key: Vec<u8>,
+    }
+
+    static TEST_TLS_FIXTURES: OnceLock<TestTlsFixtures> = OnceLock::new();
+
+    /// Generate one ephemeral test-only root CA and a distinct serverAuth leaf
+    /// certificate. No private-key material is stored in the repository.
+    fn test_tls_fixtures() -> &'static TestTlsFixtures {
+        TEST_TLS_FIXTURES.get_or_init(|| {
+            let ca_key = rcgen::KeyPair::generate().expect("generate test CA key");
+            let mut ca_params = rcgen::CertificateParams::default();
+            ca_params
+                .distinguished_name
+                .push(rcgen::DnType::CommonName, "EREBUS Test Root CA");
+            ca_params.is_ca = rcgen::IsCa::Ca(rcgen::BasicConstraints::Unconstrained);
+            ca_params.key_usages = vec![
+                rcgen::KeyUsagePurpose::KeyCertSign,
+                rcgen::KeyUsagePurpose::CrlSign,
+            ];
+            let ca_certificate = ca_params
+                .self_signed(&ca_key)
+                .expect("self-sign test CA certificate");
+
+            let server_key = rcgen::KeyPair::generate().expect("generate test server key");
+            let mut server_params = rcgen::CertificateParams::new(vec![
+                "dot.test".to_owned(),
+                "doh.test".to_owned(),
+            ])
+            .expect("create server certificate parameters");
+            server_params.is_ca = rcgen::IsCa::ExplicitNoCa;
+            server_params.key_usages = vec![rcgen::KeyUsagePurpose::DigitalSignature];
+            server_params.extended_key_usages =
+                vec![rcgen::ExtendedKeyUsagePurpose::ServerAuth];
+            let server_certificate = server_params
+                .signed_by(&server_key, &ca_certificate, &ca_key)
+                .expect("sign server certificate with test CA");
+
+            TestTlsFixtures {
+                trust_anchor: ca_certificate.der().as_ref().to_vec(),
+                server_certificate: server_certificate.der().as_ref().to_vec(),
+                server_private_key: server_key.serialize_der(),
+            }
+        })
+    }
+
     fn test_trust_anchor_der() -> Vec<u8> {
-        let mut cursor = std::io::Cursor::new(include_bytes!("../tests/fixtures/test-cert.pem"));
-        let mut certificates = rustls_pemfile::certs(&mut cursor);
-        let certificate = certificates
-            .next()
-            .expect("fixture certificate is present")
-            .expect("fixture certificate is valid PEM");
-        certificate.as_ref().to_vec()
+        test_tls_fixtures().trust_anchor.clone()
     }
 
     fn test_tls_server_config() -> Arc<rustls::ServerConfig> {
-        let mut cert_cursor =
-            std::io::Cursor::new(include_bytes!("../tests/fixtures/test-cert.pem"));
-        let certificates = rustls_pemfile::certs(&mut cert_cursor)
-            .collect::<Result<Vec<_>, _>>()
-            .expect("fixture certificates parse");
-        let mut key_cursor = std::io::Cursor::new(include_bytes!("../tests/fixtures/test-key.pem"));
-        let key = rustls_pemfile::private_key(&mut key_cursor)
-            .expect("fixture key parses")
-            .expect("fixture private key exists");
+        let fixtures = test_tls_fixtures();
+        let certificate = rustls::pki_types::CertificateDer::from(
+            fixtures.server_certificate.clone(),
+        );
+        let private_key = rustls::pki_types::PrivateKeyDer::Pkcs8(
+            rustls::pki_types::PrivatePkcs8KeyDer::from(
+                fixtures.server_private_key.clone(),
+            ),
+        );
 
         let mut config = rustls::ServerConfig::builder()
             .with_no_client_auth()
-            .with_single_cert(certificates, key)
-            .expect("fixture key matches certificate");
+            .with_single_cert(vec![certificate], private_key)
+            .expect("test leaf key matches server certificate");
         config.alpn_protocols = vec![b"http/1.1".to_vec()];
         Arc::new(config)
     }
