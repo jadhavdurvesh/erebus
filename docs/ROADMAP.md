@@ -79,7 +79,7 @@ This roadmap describes intended work; listed items are not claims of completed f
 - [x] Add a loopback-first CLI launcher and live local UDP/TCP forwarding tests.
 - [x] Add authenticated DNS-over-TLS upstream transport with certificate and hostname validation.
 - [x] Add authenticated DNS-over-HTTPS upstream transport with certificate validation, redirect blocking, numeric bootstrap, content-type checks, and bounded response bodies.
-- [ ] Add encrypted DNS transport integration tests with an isolated trusted test CA and local TLS/HTTPS fixtures.
+- [x] Add encrypted DNS transport integration tests with an isolated trusted test CA and local TLS/HTTPS fixtures; verify successful DoT/DoH exchanges, untrusted-CA rejection, and hostname mismatch rejection.
 - [ ] Connect DNS service to native adapter traffic callbacks and OS resolver configuration.
 - [ ] Threat intelligence feeds with provenance and expiry.
 - [ ] Anomaly detection as an advisory layer, not an unchecked authority.
