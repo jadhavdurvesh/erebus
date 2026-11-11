@@ -77,8 +77,9 @@ This roadmap describes intended work; listed items are not claims of completed f
 - [x] Add offline DNS policy validation and canonical export CLI commands.
 - [x] Add bounded UDP/TCP DNS proxy transport with plain UDP/TCP upstream forwarding.
 - [x] Add a loopback-first CLI launcher and live local UDP/TCP forwarding tests.
-- [ ] Add authenticated DNS-over-TLS upstream transport.
-- [ ] Add authenticated DNS-over-HTTPS upstream transport.
+- [x] Add authenticated DNS-over-TLS upstream transport with certificate and hostname validation.
+- [x] Add authenticated DNS-over-HTTPS upstream transport with certificate validation, redirect blocking, numeric bootstrap, content-type checks, and bounded response bodies.
+- [ ] Add encrypted DNS transport integration tests with an isolated trusted test CA and local TLS/HTTPS fixtures.
 - [ ] Connect DNS service to native adapter traffic callbacks and OS resolver configuration.
 - [ ] Threat intelligence feeds with provenance and expiry.
 - [ ] Anomaly detection as an advisory layer, not an unchecked authority.
