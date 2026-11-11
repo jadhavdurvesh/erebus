@@ -235,9 +235,7 @@ where
                     let _ = self.record_event(
                         now_ms,
                         traffic.flow_id,
-                        SecurityEventKind::RateLimitExceeded {
-                            scope: "client-ip".to_owned(),
-                        },
+                        SecurityEventKind::ClientRateLimitExceeded { peer },
                     );
                 }
                 Err(error) => {
@@ -252,9 +250,7 @@ where
                     let _ = self.record_event(
                         now_ms,
                         traffic.flow_id,
-                        SecurityEventKind::RateLimitExceeded {
-                            scope: "client-limiter-unavailable".to_owned(),
-                        },
+                        SecurityEventKind::ClientRateLimitExceeded { peer },
                     );
                 }
             }
@@ -286,10 +282,18 @@ where
                 Err(error) => {
                     self.metrics.tracking_failures =
                         self.metrics.tracking_failures.saturating_add(1);
+                    let error_code = error.to_string();
+                    let _ = self.record_event(
+                        now_ms,
+                        enriched_traffic.flow_id.or(traffic.flow_id),
+                        SecurityEventKind::ConnectionTrackingFailure {
+                            error_code: error_code.clone(),
+                        },
+                    );
                     decision = PolicyDecision {
                         verdict: Verdict::Deny,
                         reason: DecisionReason::ConnectionTrackingUnavailable {
-                            reason: error.to_string(),
+                            reason: error_code,
                         },
                     };
                 }
