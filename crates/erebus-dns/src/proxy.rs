@@ -1051,9 +1051,9 @@ mod tests {
         let mut headers = Vec::new();
         loop {
             let mut byte = [0u8; 1];
-            stream
-                .read_exact(&mut byte)
-                .map_err(|error| format!("DoH TLS handshake or HTTP header read failed: {error}"))?;
+            stream.read_exact(&mut byte).map_err(|error| {
+                format!("DoH TLS handshake or HTTP header read failed: {error}")
+            })?;
             headers.push(byte[0]);
             if headers.len() > 8192 {
                 return Err("DoH request headers exceeded 8192 bytes".to_owned());
@@ -1065,7 +1065,10 @@ mod tests {
 
         let header_text = String::from_utf8_lossy(&headers);
         if !header_text.starts_with("POST /dns-query HTTP/1.1") {
-            return Err(format!("unexpected DoH request line: {}", header_text.lines().next().unwrap_or("")));
+            return Err(format!(
+                "unexpected DoH request line: {}",
+                header_text.lines().next().unwrap_or("")
+            ));
         }
         if !header_text
             .to_ascii_lowercase()
