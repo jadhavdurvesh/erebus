@@ -139,11 +139,8 @@ fn run(arguments: Arguments) -> Result<(), String> {
         } => {
             let source = fs::read_to_string(&file)
                 .map_err(|error| format!("cannot read {}: {error}", file.display()))?;
-            let service = DnsSecurityService::from_toml(
-                &source,
-                DnsSecurityConfig::default(),
-            )
-            .map_err(|error| format!("{}: {error}", file.display()))?;
+            let service = DnsSecurityService::from_toml(&source, DnsSecurityConfig::default())
+                .map_err(|error| format!("{}: {error}", file.display()))?;
             let proxy = DnsProxy::new(
                 service,
                 DnsProxyConfig {
