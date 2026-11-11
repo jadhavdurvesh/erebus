@@ -9,5 +9,6 @@ rust-version.workspace = true
 erebus-types = { path = "../erebus-types" }
 erebus-policy = { path = "../erebus-policy" }
 erebus-config = { path = "../erebus-config" }
+erebus-adapter-api = { path = "../erebus-adapter-api" }
 erebus-dns = { path = "../erebus-dns" }
 thiserror.workspace = true
