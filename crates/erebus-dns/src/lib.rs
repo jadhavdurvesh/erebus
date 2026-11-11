@@ -18,7 +18,7 @@ pub use policy::{
 };
 pub use proxy::{
     DnsExchange, DnsProxy, DnsProxyConfig, DnsProxyDecision, DnsProxyError, DnsProxyMetrics,
-    DnsProxyPolicy, DnsProxyPolicyError,
+    DnsProxyPolicy, DnsProxyPolicyError, DnsUpstreamProtocol,
 };
 pub use tracker::{
     DnsRequestObservation, DnsRequestTracker, DnsResponseObservation, DnsTrackerConfig,
