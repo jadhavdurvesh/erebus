@@ -927,12 +927,12 @@ mod tests {
 
     fn test_trust_anchor_der() -> Vec<u8> {
         let mut cursor = std::io::Cursor::new(include_bytes!("../tests/fixtures/test-cert.pem"));
-        rustls_pemfile::certs(&mut cursor)
+        let mut certificates = rustls_pemfile::certs(&mut cursor);
+        let certificate = certificates
             .next()
             .expect("fixture certificate is present")
-            .expect("fixture certificate is valid PEM")
-            .as_ref()
-            .to_vec()
+            .expect("fixture certificate is valid PEM");
+        certificate.as_ref().to_vec()
     }
 
     fn test_tls_server_config() -> Arc<rustls::ServerConfig> {
