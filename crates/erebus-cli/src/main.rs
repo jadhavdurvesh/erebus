@@ -3,9 +3,9 @@
 //! This CLI validates and exports policy documents. It does not install
 //! firewall rules or modify the host network configuration.
 
-use clap::{Parser, Subcommand};
+use clap::{Parser, Subcommand, ValueEnum};
 use erebus_config::PolicyDocument;
-use erebus_dns::{DnsPolicyDocument, DnsProxy, DnsProxyConfig};
+use erebus_dns::{DnsPolicyDocument, DnsProxy, DnsProxyConfig, DnsUpstreamProtocol};
 use erebus_engine::{DnsSecurityConfig, DnsSecurityService};
 use std::{
     fs,
@@ -24,6 +24,25 @@ use std::{
 struct Arguments {
     #[command(subcommand)]
     command: Command,
+}
+
+#[derive(Clone, Copy, Debug, ValueEnum)]
+enum UpstreamProtocolArg {
+    Udp,
+    Tcp,
+    Dot,
+    Doh,
+}
+
+impl From<UpstreamProtocolArg> for DnsUpstreamProtocol {
+    fn from(value: UpstreamProtocolArg) -> Self {
+        match value {
+            UpstreamProtocolArg::Udp => Self::Udp,
+            UpstreamProtocolArg::Tcp => Self::Tcp,
+            UpstreamProtocolArg::Dot => Self::Dot,
+            UpstreamProtocolArg::Doh => Self::Doh,
+        }
+    }
 }
 
 #[derive(Debug, Subcommand)]
@@ -64,9 +83,18 @@ enum Command {
         /// TCP client listener (loopback by default).
         #[arg(long, default_value = "127.0.0.1:5300")]
         listen_tcp: SocketAddr,
-        /// Numeric upstream resolver address.
+        /// Numeric upstream resolver/bootstrap address (port 53 UDP/TCP, 853 DoT, 443 DoH).
         #[arg(long, default_value = "1.1.1.1:53")]
         upstream: SocketAddr,
+        /// Upstream transport. Encrypted modes never fall back to plaintext.
+        #[arg(long, value_enum, default_value_t = UpstreamProtocolArg::Udp)]
+        upstream_protocol: UpstreamProtocolArg,
+        /// Required for DoT; verified against the upstream TLS certificate.
+        #[arg(long)]
+        tls_server_name: Option<String>,
+        /// Required for DoH; must be an HTTPS URL.
+        #[arg(long)]
+        https_url: Option<String>,
     },
 }
 
@@ -136,6 +164,9 @@ fn run(arguments: Arguments) -> Result<(), String> {
             listen_udp,
             listen_tcp,
             upstream,
+            upstream_protocol,
+            tls_server_name,
+            https_url,
         } => {
             let source = fs::read_to_string(&file)
                 .map_err(|error| format!("cannot read {}: {error}", file.display()))?;
@@ -145,6 +176,9 @@ fn run(arguments: Arguments) -> Result<(), String> {
                 service,
                 DnsProxyConfig {
                     upstream,
+                    upstream_protocol: upstream_protocol.into(),
+                    tls_server_name,
+                    https_url,
                     ..DnsProxyConfig::default()
                 },
             )
@@ -159,6 +193,7 @@ fn run(arguments: Arguments) -> Result<(), String> {
             eprintln!("UDP listener: {listen_udp}");
             eprintln!("TCP listener: {listen_tcp}");
             eprintln!("Upstream resolver: {upstream}");
+            eprintln!("Upstream protocol: {upstream_protocol:?}");
             eprintln!("Press Ctrl+C to stop. No system resolver settings were changed.");
 
             let shutdown = Arc::new(AtomicBool::new(false));
@@ -207,5 +242,8 @@ mod tests {
         assert!(output.contains("dns-validate"));
         assert!(output.contains("dns-export"));
         assert!(output.contains("dns-serve"));
+        assert!(output.contains("upstream-protocol"));
+        assert!(output.contains("tls-server-name"));
+        assert!(output.contains("https-url"));
     }
 }
