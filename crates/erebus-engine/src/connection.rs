@@ -151,6 +151,7 @@ pub struct ConnectionObservation {
     pub flow_id: FlowId,
     pub direction: PacketDirection,
     pub state: ConnectionState,
+    pub previous_state: Option<ConnectionState>,
     pub created_at_ms: u64,
     pub last_seen_ms: u64,
     pub expires_at_ms: u64,
@@ -314,6 +315,7 @@ impl ConnectionTracker {
                 PacketDirection::Responder
             };
 
+            let previous_state = connection.state;
             match traffic.protocol {
                 TransportProtocol::Tcp => {
                     let flags = tcp_flags.expect("TCP flags validated above");
@@ -330,7 +332,12 @@ impl ConnectionTracker {
             connection.expires_at_ms =
                 now_ms.saturating_add(timeout_for(self.config, connection.state));
 
-            return Ok(observation(connection, direction, false));
+            return Ok(observation(
+                connection,
+                direction,
+                false,
+                Some(previous_state),
+            ));
         }
 
         if self.entries.len() >= self.config.max_entries {
@@ -371,16 +378,36 @@ impl ConnectionTracker {
             responder_fin: false,
         };
 
-        let result = observation(&connection, PacketDirection::Initiator, true);
+        let result = observation(&connection, PacketDirection::Initiator, true, None);
         self.entries.insert(key, connection);
         Ok(result)
     }
 
-    /// Remove entries whose expiry time is less than or equal to now_ms.
-    pub fn expire(&mut self, now_ms: u64) -> Result<usize, TrackerError> {
+    /// Remove expired entries and return their stable flow identifiers.
+    pub fn expire_with_flow_ids(&mut self, now_ms: u64) -> Result<Vec<FlowId>, TrackerError> {
         self.check_time(now_ms)?;
         self.last_observed_ms = Some(now_ms);
-        Ok(self.expire_internal(now_ms))
+
+        let expired = self
+            .entries
+            .values()
+            .filter(|flow| flow.expires_at_ms <= now_ms)
+            .map(|flow| flow.flow_id)
+            .collect::<Vec<_>>();
+        self.expire_internal(now_ms);
+        Ok(expired)
+    }
+
+    /// Remove entries whose expiry time is less than or equal to now_ms.
+    pub fn expire(&mut self, now_ms: u64) -> Result<usize, TrackerError> {
+        Ok(self.expire_with_flow_ids(now_ms)?.len())
+    }
+
+    /// Clear all flow state after a successful adapter shutdown or reset.
+    pub fn clear(&mut self) {
+        self.entries.clear();
+        self.next_flow_id = 1;
+        self.last_observed_ms = None;
     }
 
     fn expire_internal(&mut self, now_ms: u64) -> usize {
@@ -423,11 +450,13 @@ fn observation(
     connection: &Connection,
     direction: PacketDirection,
     is_new: bool,
+    previous_state: Option<ConnectionState>,
 ) -> ConnectionObservation {
     ConnectionObservation {
         flow_id: connection.flow_id,
         direction,
         state: connection.state,
+        previous_state,
         created_at_ms: connection.created_at_ms,
         last_seen_ms: connection.last_seen_ms,
         expires_at_ms: connection.expires_at_ms,
