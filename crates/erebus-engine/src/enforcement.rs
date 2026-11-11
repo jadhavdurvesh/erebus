@@ -498,12 +498,16 @@ action = "deny"
 
     const DENY_ALL: &str = r#"
 schema_version = 1
+rules = []
+
 [policy]
 default = "deny"
 "#;
 
     const ALLOW_ALL: &str = r#"
 schema_version = 1
+rules = []
+
 [policy]
 default = "allow"
 "#;
