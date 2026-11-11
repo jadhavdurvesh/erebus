@@ -923,6 +923,128 @@ mod tests {
         assert_eq!(proxy.metrics().queries_allowed, 1);
     }
 
+    fn test_trust_anchor_der() -> Vec<u8> {
+        let mut cursor = std::io::Cursor::new(include_bytes!("../tests/fixtures/test-cert.pem"));
+        rustls_pemfile::certs(&mut cursor)
+            .next()
+            .expect("fixture certificate is present")
+            .expect("fixture certificate is valid PEM")
+            .as_ref()
+            .to_vec()
+    }
+
+    fn test_tls_server_config() -> Arc<rustls::ServerConfig> {
+        let mut cert_cursor =
+            std::io::Cursor::new(include_bytes!("../tests/fixtures/test-cert.pem"));
+        let certificates = rustls_pemfile::certs(&mut cert_cursor)
+            .collect::<Result<Vec<_>, _>>()
+            .expect("fixture certificates parse");
+        let mut key_cursor =
+            std::io::Cursor::new(include_bytes!("../tests/fixtures/test-key.pem"));
+        let key = rustls_pemfile::private_key(&mut key_cursor)
+            .expect("fixture key parses")
+            .expect("fixture private key exists");
+
+        let mut config = rustls::ServerConfig::builder()
+            .with_no_client_auth()
+            .with_single_cert(certificates, key)
+            .expect("fixture key matches certificate");
+        config.alpn_protocols = vec![b"http/1.1".to_vec()];
+        Arc::new(config)
+    }
+
+    fn tls_stream(socket: TcpStream) -> rustls::StreamOwned<rustls::ServerConnection, TcpStream> {
+        socket.set_read_timeout(Some(Duration::from_secs(3))).unwrap();
+        socket.set_write_timeout(Some(Duration::from_secs(3))).unwrap();
+        let connection = rustls::ServerConnection::new(test_tls_server_config()).unwrap();
+        rustls::StreamOwned::new(connection, socket)
+    }
+
+    fn serve_dot_once(listener: TcpListener) {
+        let Ok((socket, _)) = listener.accept() else {
+            return;
+        };
+        let mut stream = tls_stream(socket);
+        let mut prefix = [0u8; 2];
+        if stream.read_exact(&mut prefix).is_err() {
+            return;
+        }
+        let length = usize::from(u16::from_be_bytes(prefix));
+        if length < DNS_HEADER_LEN || length > 4096 {
+            return;
+        }
+        let mut query = vec![0u8; length];
+        if stream.read_exact(&mut query).is_err() {
+            return;
+        }
+        query[2] |= 0x80;
+        query[3] |= 0x80;
+        let Ok(length) = u16::try_from(query.len()) else {
+            return;
+        };
+        let _ = stream.write_all(&length.to_be_bytes());
+        let _ = stream.write_all(&query);
+        let _ = stream.flush();
+    }
+
+    fn serve_doh_once(listener: TcpListener) -> bool {
+        let Ok((socket, _)) = listener.accept() else {
+            return false;
+        };
+        let mut stream = tls_stream(socket);
+        let mut headers = Vec::new();
+        loop {
+            let mut byte = [0u8; 1];
+            if stream.read_exact(&mut byte).is_err() {
+                return false;
+            }
+            headers.push(byte[0]);
+            if headers.len() > 8192 {
+                return false;
+            }
+            if headers.ends_with(b"\r\n\r\n") {
+                break;
+            }
+        }
+
+        let header_text = String::from_utf8_lossy(&headers);
+        if !header_text.starts_with("POST /dns-query HTTP/1.1")
+            || !header_text.to_ascii_lowercase().contains("content-type: application/dns-message")
+            || !header_text.to_ascii_lowercase().contains("accept: application/dns-message")
+        {
+            return false;
+        }
+        let Some(content_length) = header_text.lines().find_map(|line| {
+            let (name, value) = line.split_once(':')?;
+            name.eq_ignore_ascii_case("content-length")
+                .then(|| value.trim().parse::<usize>().ok())
+                .flatten()
+        }) else {
+            return false;
+        };
+        if !(DNS_HEADER_LEN..=4096).contains(&content_length) {
+            return false;
+        }
+
+        let mut body = vec![0u8; content_length];
+        if stream.read_exact(&mut body).is_err() {
+            return false;
+        }
+        body[2] |= 0x80;
+        body[3] |= 0x80;
+        let response_headers = format!(
+            "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+            body.len()
+        );
+        if stream.write_all(response_headers.as_bytes()).is_err()
+            || stream.write_all(&body).is_err()
+            || stream.flush().is_err()
+        {
+            return false;
+        }
+        true
+    }
+
     #[test]
     fn response_match_requires_id_question_and_type() {
         let query = DnsMessage::parse(&make_query("example.com", 5)).unwrap();
@@ -936,6 +1058,154 @@ mod tests {
         response.header.id = 5;
         response.questions[0].qtype = 28;
         assert!(!matches_query(&query, &response));
+    }
+
+    #[test]
+    fn dot_performs_verified_tls_exchange_with_local_trusted_ca() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let upstream = listener.local_addr().unwrap();
+        let worker = thread::spawn(move || serve_dot_once(listener));
+
+        let proxy = DnsProxy::new(
+            test_service(),
+            DnsProxyConfig {
+                upstream,
+                upstream_protocol: DnsUpstreamProtocol::Dot,
+                tls_server_name: Some("dot.test".into()),
+                additional_trust_anchors: vec![test_trust_anchor_der()],
+                io_timeout: Duration::from_secs(3),
+                ..DnsProxyConfig::default()
+            },
+        )
+        .unwrap();
+
+        let response = proxy
+            .handle_udp_datagram(
+                &make_query("safe.example", 0xdda1),
+                "127.0.0.1:53004".parse().unwrap(),
+            )
+            .unwrap();
+        assert!(worker.join().unwrap());
+
+        let parsed = DnsMessage::parse(&response).unwrap();
+        assert!(parsed.is_response());
+        assert_eq!(parsed.header.id, 0xdda1);
+        assert_eq!(proxy.metrics().upstream_failures, 0);
+    }
+
+    #[test]
+    fn dot_rejects_untrusted_and_wrong_hostname_certificates() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let upstream = listener.local_addr().unwrap();
+        let worker = thread::spawn(move || serve_dot_once(listener));
+        let untrusted_proxy = DnsProxy::new(
+            test_service(),
+            DnsProxyConfig {
+                upstream,
+                upstream_protocol: DnsUpstreamProtocol::Dot,
+                tls_server_name: Some("dot.test".into()),
+                io_timeout: Duration::from_secs(3),
+                ..DnsProxyConfig::default()
+            },
+        )
+        .unwrap();
+        let untrusted = untrusted_proxy
+            .handle_udp_datagram(
+                &make_query("safe.example", 0xdda2),
+                "127.0.0.1:53005".parse().unwrap(),
+            )
+            .unwrap();
+        assert_eq!(DnsMessage::parse(&untrusted).unwrap().header.response_code(), 2);
+        let _ = worker.join();
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let upstream = listener.local_addr().unwrap();
+        let worker = thread::spawn(move || serve_dot_once(listener));
+        let wrong_name_proxy = DnsProxy::new(
+            test_service(),
+            DnsProxyConfig {
+                upstream,
+                upstream_protocol: DnsUpstreamProtocol::Dot,
+                tls_server_name: Some("wrong.test".into()),
+                additional_trust_anchors: vec![test_trust_anchor_der()],
+                io_timeout: Duration::from_secs(3),
+                ..DnsProxyConfig::default()
+            },
+        )
+        .unwrap();
+        let wrong_name = wrong_name_proxy
+            .handle_udp_datagram(
+                &make_query("safe.example", 0xdda3),
+                "127.0.0.1:53006".parse().unwrap(),
+            )
+            .unwrap();
+        assert_eq!(DnsMessage::parse(&wrong_name).unwrap().header.response_code(), 2);
+        let _ = worker.join();
+    }
+
+    #[test]
+    fn doh_performs_verified_https_exchange_with_dns_media_type() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let upstream = listener.local_addr().unwrap();
+        let port = upstream.port();
+        let worker = thread::spawn(move || serve_doh_once(listener));
+
+        let proxy = DnsProxy::new(
+            test_service(),
+            DnsProxyConfig {
+                upstream,
+                upstream_protocol: DnsUpstreamProtocol::Doh,
+                https_url: Some(format!("https://doh.test:{port}/dns-query")),
+                additional_trust_anchors: vec![test_trust_anchor_der()],
+                io_timeout: Duration::from_secs(3),
+                ..DnsProxyConfig::default()
+            },
+        )
+        .unwrap();
+
+        let response = proxy
+            .handle_udp_datagram(
+                &make_query("safe.example", 0xdda4),
+                "127.0.0.1:53007".parse().unwrap(),
+            )
+            .unwrap();
+        assert!(worker.join().unwrap());
+
+        let parsed = DnsMessage::parse(&response).unwrap();
+        assert!(parsed.is_response());
+        assert_eq!(parsed.header.id, 0xdda4);
+        assert_eq!(proxy.metrics().upstream_failures, 0);
+    }
+
+    #[test]
+    fn doh_rejects_untrusted_certificates_without_plaintext_fallback() {
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let upstream = listener.local_addr().unwrap();
+        let port = upstream.port();
+        let worker = thread::spawn(move || serve_doh_once(listener));
+
+        let proxy = DnsProxy::new(
+            test_service(),
+            DnsProxyConfig {
+                upstream,
+                upstream_protocol: DnsUpstreamProtocol::Doh,
+                https_url: Some(format!("https://doh.test:{port}/dns-query")),
+                io_timeout: Duration::from_secs(3),
+                ..DnsProxyConfig::default()
+            },
+        )
+        .unwrap();
+
+        let response = proxy
+            .handle_udp_datagram(
+                &make_query("safe.example", 0xdda5),
+                "127.0.0.1:53008".parse().unwrap(),
+            )
+            .unwrap();
+        let parsed = DnsMessage::parse(&response).unwrap();
+        assert_eq!(parsed.header.response_code(), 2);
+        assert_eq!(proxy.metrics().upstream_failures, 1);
+        let _ = worker.join();
     }
 
     #[test]
