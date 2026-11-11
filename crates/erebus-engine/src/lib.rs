@@ -18,7 +18,8 @@ pub use dns::{
     DnsSecurityError, DnsSecurityService,
 };
 pub use enforcement::{
-    EnforcementMetrics, EnforcementResult, EnforcementRuntime, EnforcementRuntimeError,
+    EnforcementMaintenanceReport, EnforcementMetrics, EnforcementResult, EnforcementRuntime,
+    EnforcementRuntimeConfig, EnforcementRuntimeError,
 };
 
 pub use connection::{
