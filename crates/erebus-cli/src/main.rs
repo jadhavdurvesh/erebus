@@ -243,8 +243,7 @@ mod tests {
         assert!(output.contains("dns-export"));
         assert!(output.contains("dns-serve"));
 
-        let serve_help =
-            Arguments::try_parse_from(["erebus", "dns-serve", "--help"]).unwrap_err();
+        let serve_help = Arguments::try_parse_from(["erebus", "dns-serve", "--help"]).unwrap_err();
         let serve_output = serve_help.to_string();
         assert!(serve_output.contains("upstream-protocol"));
         assert!(serve_output.contains("tls-server-name"));
