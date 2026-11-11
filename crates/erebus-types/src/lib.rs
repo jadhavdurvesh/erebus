@@ -183,6 +183,8 @@ pub enum Verdict {
 pub enum DecisionReason {
     MatchedRule { rule_id: String },
     DefaultPolicy,
+    RateLimited { peer: IpAddr, reason: String },
+    ConnectionTrackingUnavailable { reason: String },
 }
 
 /// A complete, explainable policy decision.
