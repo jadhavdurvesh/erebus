@@ -687,6 +687,34 @@ default = "allow"
     }
 
     #[test]
+    fn policy_deny_does_not_consume_rate_limit_or_create_flow_state() {
+        let mut runtime = EnforcementRuntime::with_config(
+            Engine::from_toml(DENY_SSH).unwrap(),
+            MockAdapter::default(),
+            small_config(8, 1, 1_000),
+        )
+        .unwrap();
+        runtime.initialize().unwrap();
+
+        let denied_ssh = descriptor(22);
+        let denied = runtime
+            .evaluate_packet(&denied_ssh, Some(TcpFlags::syn()), 10)
+            .unwrap();
+        assert_eq!(denied.decision.verdict, Verdict::Deny);
+        assert_eq!(runtime.tracked_clients(), 0);
+        assert_eq!(runtime.active_flows(), 0);
+
+        let allowed_https = descriptor(443);
+        let allowed = runtime
+            .evaluate_packet(&allowed_https, Some(TcpFlags::syn()), 11)
+            .unwrap();
+        assert_eq!(allowed.decision.verdict, Verdict::Allow);
+        assert_eq!(runtime.tracked_clients(), 1);
+        assert_eq!(runtime.active_flows(), 1);
+        assert_eq!(runtime.metrics().rate_limited, 0);
+    }
+
+    #[test]
     fn per_client_rate_limit_denies_excess_packets_without_adapter_bypass() {
         let mut runtime = EnforcementRuntime::with_config(
             Engine::from_toml(ALLOW_ALL).unwrap(),
