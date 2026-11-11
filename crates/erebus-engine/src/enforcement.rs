@@ -5,7 +5,7 @@
 //! operating-system-specific act of applying a verdict.
 
 use crate::{
-    ConnectionState, ConnectionTracker, EventJournal, EventJournalError, KeyedRateLimiter,
+    ConnectionTracker, EventJournal, EventJournalError, KeyedRateLimiter,
     KeyedRateLimiterConfig, RateLimitError, SecurityEvent, SecurityEventKind, TcpFlags,
     TrackerConfig, TrackerError,
 };
@@ -478,6 +478,7 @@ where
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::{KeyedRateLimiterConfig, TokenBucketConfig};
     use erebus_types::{Direction, TransportProtocol};
     use std::net::{IpAddr, Ipv4Addr};
 
@@ -584,8 +585,258 @@ default = "allow"
         }
     }
 
+    fn udp_descriptor(
+        source: &str,
+        source_port: u16,
+        destination: &str,
+        destination_port: u16,
+        direction: Direction,
+    ) -> TrafficDescriptor {
+        TrafficDescriptor {
+            direction,
+            protocol: TransportProtocol::Udp,
+            source: source.parse().unwrap(),
+            destination: destination.parse().unwrap(),
+            source_port: Some(source_port),
+            destination_port: Some(destination_port),
+            interface: Some("mock0".into()),
+            flow_id: None,
+        }
+    }
+
+    fn small_config(
+        tracker_capacity: usize,
+        rate_capacity: u32,
+        idle_timeout_ms: u64,
+    ) -> EnforcementRuntimeConfig {
+        EnforcementRuntimeConfig {
+            event_capacity: 64,
+            tracker: TrackerConfig {
+                max_entries: tracker_capacity,
+                tcp_syn_timeout_ms: 10,
+                tcp_established_timeout_ms: 100,
+                tcp_closing_timeout_ms: 10,
+                tcp_reset_timeout_ms: 5,
+                udp_timeout_ms: 10,
+                other_timeout_ms: 10,
+            },
+            client_rate_limit: KeyedRateLimiterConfig {
+                bucket: TokenBucketConfig {
+                    capacity: rate_capacity,
+                    refill_interval_ms: 100,
+                },
+                max_keys: 8,
+                idle_timeout_ms,
+            },
+        }
+    }
+
     fn make_runtime(policy: &str, adapter: MockAdapter) -> EnforcementRuntime<MockAdapter> {
         EnforcementRuntime::new(Engine::from_toml(policy).unwrap(), adapter, 16).unwrap()
+    }
+
+    #[test]
+    fn packet_pipeline_tracks_tcp_handshake_and_emits_state_events() {
+        let mut runtime = make_runtime(ALLOW_ALL, MockAdapter::default());
+        runtime.initialize().unwrap();
+
+        let syn = descriptor(22);
+        let first = runtime
+            .evaluate_packet(&syn, Some(TcpFlags::syn()), 10)
+            .unwrap();
+        assert_eq!(first.decision.verdict, Verdict::Allow);
+        assert_eq!(runtime.active_flows(), 1);
+
+        let syn_ack = TrafficDescriptor {
+            direction: Direction::Outbound,
+            source: syn.destination,
+            destination: syn.source,
+            source_port: syn.destination_port,
+            destination_port: syn.source_port,
+            ..syn.clone()
+        };
+        runtime
+            .evaluate_packet(&syn_ack, Some(TcpFlags::syn_ack()), 20)
+            .unwrap();
+
+        let ack = syn.clone();
+        runtime
+            .evaluate_packet(&ack, Some(TcpFlags::ack()), 30)
+            .unwrap();
+
+        let events = runtime.events();
+        assert!(events.iter().any(|event| matches!(
+            event.kind,
+            SecurityEventKind::ConnectionCreated
+        )));
+        let transitions = events
+            .iter()
+            .filter_map(|event| match &event.kind {
+                SecurityEventKind::ConnectionStateChanged { state } => Some(state.as_str()),
+                _ => None,
+            })
+            .collect::<Vec<_>>();
+        assert_eq!(transitions, vec!["Tcp(SynReceived)", "Tcp(Established)"]);
+        assert!(events.iter().filter(|event| matches!(
+            event.kind,
+            SecurityEventKind::ConnectionCreated
+                | SecurityEventKind::ConnectionStateChanged { .. }
+        )).all(|event| event.flow_id == Some(FlowId(1))));
+    }
+
+    #[test]
+    fn per_client_rate_limit_denies_excess_packets_without_adapter_bypass() {
+        let mut runtime = EnforcementRuntime::with_config(
+            Engine::from_toml(ALLOW_ALL).unwrap(),
+            MockAdapter::default(),
+            small_config(8, 1, 1_000),
+        )
+        .unwrap();
+        runtime.initialize().unwrap();
+
+        let packet = udp_descriptor(
+            "198.51.100.20",
+            51_000,
+            "192.0.2.10",
+            5353,
+            Direction::Inbound,
+        );
+        let first = runtime.evaluate_packet(&packet, None, 0).unwrap();
+        let second = runtime.evaluate_packet(&packet, None, 0).unwrap();
+
+        assert_eq!(first.decision.verdict, Verdict::Allow);
+        assert_eq!(second.decision.verdict, Verdict::Deny);
+        assert!(matches!(
+            second.decision.reason,
+            DecisionReason::RateLimited { peer, .. } if peer == "198.51.100.20".parse().unwrap()
+        ));
+        assert_eq!(runtime.metrics().rate_limited, 1);
+        assert_eq!(runtime.adapter().applied, vec![Verdict::Allow, Verdict::Deny]);
+        assert!(runtime.events().iter().any(|event| matches!(
+            event.kind,
+            SecurityEventKind::RateLimitExceeded { .. }
+        )));
+    }
+
+    #[test]
+    fn tracker_capacity_exhaustion_is_a_deny_not_an_untracked_allow() {
+        let mut runtime = EnforcementRuntime::with_config(
+            Engine::from_toml(ALLOW_ALL).unwrap(),
+            MockAdapter::default(),
+            small_config(1, 10, 1_000),
+        )
+        .unwrap();
+        runtime.initialize().unwrap();
+
+        let first = udp_descriptor(
+            "198.51.100.30",
+            51_000,
+            "192.0.2.10",
+            5353,
+            Direction::Inbound,
+        );
+        let second = udp_descriptor(
+            "198.51.100.30",
+            51_001,
+            "192.0.2.11",
+            5353,
+            Direction::Inbound,
+        );
+
+        assert_eq!(
+            runtime.evaluate_packet(&first, None, 0).unwrap().decision.verdict,
+            Verdict::Allow
+        );
+        let blocked = runtime.evaluate_packet(&second, None, 1).unwrap();
+        assert_eq!(blocked.decision.verdict, Verdict::Deny);
+        assert!(matches!(
+            blocked.decision.reason,
+            DecisionReason::ConnectionTrackingUnavailable { .. }
+        ));
+        assert_eq!(runtime.metrics().tracking_failures, 1);
+        assert_eq!(runtime.active_flows(), 1);
+        assert_eq!(runtime.adapter().applied, vec![Verdict::Allow, Verdict::Deny]);
+    }
+
+    #[test]
+    fn maintenance_expires_connections_and_prunes_idle_client_buckets() {
+        let mut runtime = EnforcementRuntime::with_config(
+            Engine::from_toml(ALLOW_ALL).unwrap(),
+            MockAdapter::default(),
+            small_config(8, 10, 15),
+        )
+        .unwrap();
+        runtime.initialize().unwrap();
+
+        let packet = udp_descriptor(
+            "198.51.100.40",
+            51_000,
+            "192.0.2.10",
+            5353,
+            Direction::Inbound,
+        );
+        runtime.evaluate_packet(&packet, None, 0).unwrap();
+        assert_eq!(runtime.active_flows(), 1);
+        assert_eq!(runtime.tracked_clients(), 1);
+
+        let first = runtime.maintain(10).unwrap();
+        assert_eq!(first.expired_flows, vec![FlowId(1)]);
+        assert_eq!(runtime.active_flows(), 0);
+        assert_eq!(first.pruned_rate_limit_clients, 0);
+
+        let second = runtime.maintain(15).unwrap();
+        assert_eq!(second.pruned_rate_limit_clients, 1);
+        assert_eq!(runtime.tracked_clients(), 0);
+        assert!(runtime.events().iter().any(|event| matches!(
+            event.kind,
+            SecurityEventKind::ConnectionExpired
+        )));
+    }
+
+    #[test]
+    fn shutdown_clears_flow_and_rate_limit_state_before_reinitialize() {
+        let mut runtime = EnforcementRuntime::with_config(
+            Engine::from_toml(ALLOW_ALL).unwrap(),
+            MockAdapter::default(),
+            small_config(8, 10, 1_000),
+        )
+        .unwrap();
+        runtime.initialize().unwrap();
+
+        let packet = udp_descriptor(
+            "198.51.100.50",
+            51_000,
+            "192.0.2.10",
+            5353,
+            Direction::Inbound,
+        );
+        runtime.evaluate_packet(&packet, None, 0).unwrap();
+        assert_eq!(runtime.active_flows(), 1);
+        assert_eq!(runtime.tracked_clients(), 1);
+
+        runtime.shutdown().unwrap();
+        assert_eq!(runtime.active_flows(), 0);
+        assert_eq!(runtime.tracked_clients(), 0);
+
+        runtime.initialize().unwrap();
+        assert_eq!(
+            runtime.evaluate_packet(&packet, None, 1).unwrap().decision.verdict,
+            Verdict::Allow
+        );
+    }
+
+    #[test]
+    fn tcp_packet_without_flags_fails_closed_in_packet_api() {
+        let mut runtime = make_runtime(ALLOW_ALL, MockAdapter::default());
+        runtime.initialize().unwrap();
+        let result = runtime.evaluate_packet(&descriptor(443), None, 1).unwrap();
+
+        assert_eq!(result.decision.verdict, Verdict::Deny);
+        assert!(matches!(
+            result.decision.reason,
+            DecisionReason::ConnectionTrackingUnavailable { .. }
+        ));
+        assert_eq!(runtime.active_flows(), 0);
     }
 
     #[test]
