@@ -4,6 +4,7 @@
 //! DNS query contents, and other secrets must not be added to this type.
 
 use erebus_types::{FlowId, Verdict};
+use std::net::IpAddr;
 use std::collections::VecDeque;
 use thiserror::Error;
 
@@ -25,6 +26,12 @@ pub enum SecurityEventKind {
     ConnectionExpired,
     RateLimitExceeded {
         scope: String,
+    },
+    ClientRateLimitExceeded {
+        peer: IpAddr,
+    },
+    ConnectionTrackingFailure {
+        error_code: String,
     },
     DnsQueryDecision {
         domain: String,
@@ -196,6 +203,8 @@ fn validate_event_text(kind: &SecurityEventKind) -> Result<(), EventJournalError
         }
         SecurityEventKind::ConnectionStateChanged { state } => validate(state)?,
         SecurityEventKind::RateLimitExceeded { scope } => validate(scope)?,
+        SecurityEventKind::ConnectionTrackingFailure { error_code } => validate(error_code)?,
+        SecurityEventKind::ClientRateLimitExceeded { .. } => {}
         SecurityEventKind::DnsQueryDecision { domain, action } => {
             validate(domain)?;
             validate(action)?;
