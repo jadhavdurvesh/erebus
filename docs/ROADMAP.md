@@ -27,6 +27,10 @@ This roadmap describes intended work; listed items are not claims of completed f
 - [x] Document monotonic timestamp semantics and metadata-only event fields.
 - [ ] Add a durable export sink and bounded asynchronous delivery contract.
 - [x] Add portable enforcement orchestration: policy snapshot evaluation, adapter lifecycle, verdict forwarding, bounded decision audit, and fail-closed runtime fault handling.
+- [x] Integrate bounded per-peer token buckets into packet-level enforcement; rate-limit errors fail closed.
+- [x] Integrate TCP/UDP/other flow tracking into packet-level enforcement; tracking failures and capacity exhaustion fail closed.
+- [x] Add flow creation/state-transition/expiry events, periodic maintenance API, and state reset on successful adapter shutdown.
+- [ ] Connect the packet-level runtime API to real native adapter callbacks.
 - [x] Add an ownership/dependency audit distinguishing EREBUS-authored security logic from third-party infrastructure and native OS enforcement.
 
 ## Milestone 2 — Sand OS integration research (dependency-gated)
@@ -73,7 +77,8 @@ This roadmap describes intended work; listed items are not claims of completed f
 
 - [x] Add bounded TCP/UDP connection tracking with state transitions, timeouts, interface-aware flow keys, and capacity handling.
 - [x] Add token-bucket and bounded per-key rate-limiting primitives.
-- [ ] Integrate trackers and rate limits with native adapter traffic callbacks.
+- [x] Integrate trackers and rate limits with the portable packet-level runtime API.
+- [ ] Connect tracker/rate-limit processing to native adapter traffic callbacks.
 - [x] Add independent DNS wire parser, versioned domain policy, request correlation, and positive-response cache.
 - [x] Integrate DNS decisions, per-client rate limiting, response correlation, cache admission, and audit events into the portable engine.
 - [x] Add offline DNS policy validation and canonical export CLI commands.
