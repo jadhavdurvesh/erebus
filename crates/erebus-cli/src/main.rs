@@ -87,7 +87,7 @@ enum Command {
         #[arg(long, default_value = "1.1.1.1:53")]
         upstream: SocketAddr,
         /// Upstream transport. Encrypted modes never fall back to plaintext.
-        #[arg(long, value_enum, default_value_t = UpstreamProtocolArg::Udp)]
+        #[arg(long, value_enum, default_value = "udp")]
         upstream_protocol: UpstreamProtocolArg,
         /// Required for DoT; verified against the upstream TLS certificate.
         #[arg(long)]
