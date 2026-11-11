@@ -1206,6 +1206,35 @@ mod tests {
         assert_eq!(parsed.header.response_code(), 2);
         assert_eq!(proxy.metrics().upstream_failures, 1);
         let _ = worker.join();
+
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        let upstream = listener.local_addr().unwrap();
+        let port = upstream.port();
+        let worker = thread::spawn(move || serve_doh_once(listener));
+        let wrong_name_proxy = DnsProxy::new(
+            test_service(),
+            DnsProxyConfig {
+                upstream,
+                upstream_protocol: DnsUpstreamProtocol::Doh,
+                https_url: Some(format!("https://wrong.test:{port}/dns-query")),
+                additional_trust_anchors: vec![test_trust_anchor_der()],
+                io_timeout: Duration::from_secs(3),
+                ..DnsProxyConfig::default()
+            },
+        )
+        .unwrap();
+
+        let wrong_name = wrong_name_proxy
+            .handle_udp_datagram(
+                &make_query("safe.example", 0xdda6),
+                "127.0.0.1:53009".parse().unwrap(),
+            )
+            .unwrap();
+        assert_eq!(
+            DnsMessage::parse(&wrong_name).unwrap().header.response_code(),
+            2
+        );
+        let _ = worker.join();
     }
 
     #[test]
