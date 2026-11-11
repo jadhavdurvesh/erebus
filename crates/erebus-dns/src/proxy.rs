@@ -857,11 +857,16 @@ mod tests {
         let upstream = UdpSocket::bind("127.0.0.1:0").unwrap();
         let upstream_address = upstream.local_addr().unwrap();
         let worker = thread::spawn(move || {
+            upstream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
             let mut buffer = [0u8; 512];
-            let (size, peer) = upstream.recv_from(&mut buffer).unwrap();
+            let Ok((size, peer)) = upstream.recv_from(&mut buffer) else {
+                return false;
+            };
             buffer[2] |= 0x80;
             buffer[3] |= 0x80;
-            upstream.send_to(&buffer[..size], peer).unwrap();
+            upstream.send_to(&buffer[..size], peer).is_ok()
         });
 
         let proxy = DnsProxy::new(
@@ -877,7 +882,7 @@ mod tests {
         let response = proxy
             .handle_udp_datagram(&query, "127.0.0.1:53001".parse().unwrap())
             .unwrap();
-        worker.join().unwrap();
+        assert!(worker.join().unwrap());
 
         let parsed = DnsMessage::parse(&response).unwrap();
         assert!(parsed.is_response());
@@ -890,18 +895,34 @@ mod tests {
         let upstream = TcpListener::bind("127.0.0.1:0").unwrap();
         let upstream_address = upstream.local_addr().unwrap();
         let worker = thread::spawn(move || {
-            let (mut stream, _) = upstream.accept().unwrap();
+            let Some(mut stream) = accept_test_connection(&upstream) else {
+                return false;
+            };
+            stream
+                .set_read_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
+            stream
+                .set_write_timeout(Some(Duration::from_secs(3)))
+                .unwrap();
             let mut prefix = [0u8; 2];
-            stream.read_exact(&mut prefix).unwrap();
+            if stream.read_exact(&mut prefix).is_err() {
+                return false;
+            }
             let size = usize::from(u16::from_be_bytes(prefix));
+            if !(DNS_HEADER_LEN..=4096).contains(&size) {
+                return false;
+            }
             let mut query = vec![0u8; size];
-            stream.read_exact(&mut query).unwrap();
+            if stream.read_exact(&mut query).is_err() {
+                return false;
+            }
             query[2] |= 0x80;
             query[3] |= 0x80;
             stream
                 .write_all(&(query.len() as u16).to_be_bytes())
-                .unwrap();
-            stream.write_all(&query).unwrap();
+                .is_ok()
+                && stream.write_all(&query).is_ok()
+                && stream.flush().is_ok()
         });
 
         let proxy = DnsProxy::new(
@@ -917,7 +938,7 @@ mod tests {
         let response = proxy
             .handle_tcp_message(&query, "127.0.0.1:53002".parse().unwrap())
             .unwrap();
-        worker.join().unwrap();
+        assert!(worker.join().unwrap());
 
         let parsed = DnsMessage::parse(&response).unwrap();
         assert!(parsed.is_response());
