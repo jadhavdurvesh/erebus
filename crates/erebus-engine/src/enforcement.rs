@@ -40,7 +40,9 @@ pub enum EnforcementRuntimeError<E: Error + 'static> {
     AdapterShutdown(#[source] E),
     #[error("enforcement runtime has not been initialized")]
     NotInitialized,
-    #[error("enforcement runtime is faulted; successful shutdown and reinitialization are required")]
+    #[error(
+        "enforcement runtime is faulted; successful shutdown and reinitialization are required"
+    )]
     Faulted,
     #[error("adapter reported state {actual:?} when Ready was required")]
     AdapterNotReady { actual: AdapterState },
@@ -142,8 +144,7 @@ where
         }
 
         if let Err(error) = self.adapter.enforce(traffic, &decision) {
-            self.metrics.enforcement_failures =
-                self.metrics.enforcement_failures.saturating_add(1);
+            self.metrics.enforcement_failures = self.metrics.enforcement_failures.saturating_add(1);
             self.faulted = true;
             let _ = self.record_event(
                 now_ms,
@@ -393,7 +394,10 @@ default = "allow"
 
         let allowed = runtime.evaluate_and_enforce(&descriptor(443), 11).unwrap();
         assert_eq!(allowed.decision.verdict, Verdict::Allow);
-        assert_eq!(runtime.adapter().applied, vec![Verdict::Deny, Verdict::Allow]);
+        assert_eq!(
+            runtime.adapter().applied,
+            vec![Verdict::Deny, Verdict::Allow]
+        );
         assert_eq!(runtime.events().len(), 2);
         assert_eq!(runtime.metrics().decisions, 2);
         assert_eq!(runtime.metrics().denied, 1);
@@ -413,17 +417,19 @@ default = "allow"
 
         assert!(matches!(
             runtime.evaluate_and_enforce(&descriptor(443), 10),
-            Err(EnforcementRuntimeError::AdapterEnforcement(MockError::Enforce))
+            Err(EnforcementRuntimeError::AdapterEnforcement(
+                MockError::Enforce
+            ))
         ));
         assert!(runtime.is_faulted());
         assert!(matches!(
             runtime.evaluate_and_enforce(&descriptor(443), 11),
             Err(EnforcementRuntimeError::Faulted)
         ));
-        assert!(runtime.events().iter().any(|event| matches!(
-            event.kind,
-            SecurityEventKind::EnforcementFailure { .. }
-        )));
+        assert!(runtime
+            .events()
+            .iter()
+            .any(|event| matches!(event.kind, SecurityEventKind::EnforcementFailure { .. })));
         assert_eq!(runtime.metrics().enforcement_failures, 1);
     }
 
@@ -488,12 +494,9 @@ default = "allow"
             }
         }
 
-        let mut runtime = EnforcementRuntime::new(
-            Engine::from_toml(DENY_ALL).unwrap(),
-            UnreadyAdapter,
-            4,
-        )
-        .unwrap();
+        let mut runtime =
+            EnforcementRuntime::new(Engine::from_toml(DENY_ALL).unwrap(), UnreadyAdapter, 4)
+                .unwrap();
         assert!(matches!(
             runtime.initialize(),
             Err(EnforcementRuntimeError::AdapterNotReady {
@@ -514,7 +517,10 @@ default = "allow"
 
         assert_eq!(result.decision.verdict, Verdict::Allow);
         assert_eq!(runtime.metrics().audit_write_failures, 1);
-        assert_eq!(runtime.adapter().applied, vec![Verdict::Allow, Verdict::Allow]);
+        assert_eq!(
+            runtime.adapter().applied,
+            vec![Verdict::Allow, Verdict::Allow]
+        );
     }
 
     #[test]
@@ -528,7 +534,9 @@ default = "allow"
         );
         assert!(matches!(
             init_failure.initialize(),
-            Err(EnforcementRuntimeError::AdapterInitialize(MockError::Initialize))
+            Err(EnforcementRuntimeError::AdapterInitialize(
+                MockError::Initialize
+            ))
         ));
         assert!(init_failure.is_faulted());
         init_failure.shutdown().unwrap();
@@ -544,7 +552,9 @@ default = "allow"
         shutdown_failure.initialize().unwrap();
         assert!(matches!(
             shutdown_failure.shutdown(),
-            Err(EnforcementRuntimeError::AdapterShutdown(MockError::Shutdown))
+            Err(EnforcementRuntimeError::AdapterShutdown(
+                MockError::Shutdown
+            ))
         ));
         assert!(shutdown_failure.is_faulted());
     }
