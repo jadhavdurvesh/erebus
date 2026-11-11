@@ -4,9 +4,14 @@
 //! adapter-failure handling. Platform adapters own packet acquisition and the
 //! operating-system-specific act of applying a verdict.
 
-use crate::{Engine, EventJournal, EventJournalError, SecurityEvent, SecurityEventKind};
+use crate::{
+    ConnectionState, ConnectionTracker, EventJournal, EventJournalError, KeyedRateLimiter,
+    KeyedRateLimiterConfig, RateLimitError, SecurityEvent, SecurityEventKind, TcpFlags,
+    TrackerConfig, TrackerError,
+};
 use erebus_adapter_api::{AdapterState, PlatformAdapter};
-use erebus_types::{DecisionReason, FlowId, PolicyDecision, TrafficDescriptor, Verdict};
+use erebus_types::{DecisionReason, Direction, FlowId, PolicyDecision, TrafficDescriptor, Verdict};
+use std::net::IpAddr;
 use std::error::Error;
 use thiserror::Error;
 
@@ -17,6 +22,38 @@ pub struct EnforcementMetrics {
     pub denied: u64,
     pub enforcement_failures: u64,
     pub audit_write_failures: u64,
+    pub rate_limited: u64,
+    pub tracking_failures: u64,
+}
+
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub struct EnforcementRuntimeConfig {
+    pub event_capacity: usize,
+    pub tracker: TrackerConfig,
+    pub client_rate_limit: KeyedRateLimiterConfig,
+}
+
+impl Default for EnforcementRuntimeConfig {
+    fn default() -> Self {
+        Self {
+            event_capacity: 8192,
+            tracker: TrackerConfig::default(),
+            client_rate_limit: KeyedRateLimiterConfig {
+                bucket: crate::TokenBucketConfig {
+                    capacity: 100,
+                    refill_interval_ms: 100,
+                },
+                max_keys: 4096,
+                idle_timeout_ms: 300_000,
+            },
+        }
+    }
+}
+
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct EnforcementMaintenanceReport {
+    pub expired_flows: Vec<FlowId>,
+    pub pruned_rate_limit_clients: usize,
 }
 
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -32,6 +69,14 @@ pub enum EnforcementRuntimeError<E: Error + 'static> {
     Policy(#[from] crate::PolicyStoreError),
     #[error("event journal initialization failed: {0}")]
     JournalInit(#[from] EventJournalError),
+    #[error("connection tracker initialization failed: {0}")]
+    TrackerInit(#[source] TrackerError),
+    #[error("client rate limiter initialization failed: {0}")]
+    RateLimitInit(#[source] RateLimitError),
+    #[error("connection tracker maintenance failed: {0}")]
+    TrackerMaintenance(#[source] TrackerError),
+    #[error("client rate limiter maintenance failed: {0}")]
+    RateLimitMaintenance(#[source] RateLimitError),
     #[error("platform adapter initialization failed: {0}")]
     AdapterInitialize(#[source] E),
     #[error("platform adapter enforcement failed: {0}")]
@@ -57,6 +102,8 @@ pub struct EnforcementRuntime<A: PlatformAdapter> {
     engine: Engine,
     adapter: A,
     journal: EventJournal,
+    tracker: ConnectionTracker,
+    client_limits: KeyedRateLimiter<IpAddr>,
     metrics: EnforcementMetrics,
     initialized: bool,
     faulted: bool,
@@ -71,10 +118,32 @@ where
         adapter: A,
         event_capacity: usize,
     ) -> Result<Self, EnforcementRuntimeError<A::Error>> {
+        Self::with_config(
+            engine,
+            adapter,
+            EnforcementRuntimeConfig {
+                event_capacity,
+                ..EnforcementRuntimeConfig::default()
+            },
+        )
+    }
+
+    pub fn with_config(
+        engine: Engine,
+        adapter: A,
+        config: EnforcementRuntimeConfig,
+    ) -> Result<Self, EnforcementRuntimeError<A::Error>> {
+        let tracker = ConnectionTracker::new(config.tracker)
+            .map_err(EnforcementRuntimeError::TrackerInit)?;
+        let client_limits = KeyedRateLimiter::new(config.client_rate_limit)
+            .map_err(EnforcementRuntimeError::RateLimitInit)?;
+
         Ok(Self {
             engine,
             adapter,
-            journal: EventJournal::new(event_capacity)?,
+            journal: EventJournal::new(config.event_capacity)?,
+            tracker,
+            client_limits,
             metrics: EnforcementMetrics::default(),
             initialized: false,
             faulted: false,
