@@ -26,6 +26,8 @@ This roadmap describes intended work; listed items are not claims of completed f
 - [x] Add a bounded structured security-event journal with sequence numbers and explicit rollover reporting.
 - [x] Document monotonic timestamp semantics and metadata-only event fields.
 - [ ] Add a durable export sink and bounded asynchronous delivery contract.
+- [x] Add portable enforcement orchestration: policy snapshot evaluation, adapter lifecycle, verdict forwarding, bounded decision audit, and fail-closed runtime fault handling.
+- [x] Add an ownership/dependency audit distinguishing EREBUS-authored security logic from third-party infrastructure and native OS enforcement.
 
 ## Milestone 2 — Sand OS integration research (dependency-gated)
 
