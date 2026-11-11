@@ -762,6 +762,7 @@ fn encode_error_response(query: &DnsMessage, response_code: u8) -> Result<Vec<u8
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::sync::OnceLock;
     use crate::policy::{
         normalize_domain, DomainAction, DomainMatchKind, DomainPattern, DomainPolicy, DomainRule,
     };
