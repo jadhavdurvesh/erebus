@@ -177,25 +177,129 @@ where
         Ok(())
     }
 
-    /// Evaluate and apply one normalized packet/flow descriptor.
-    ///
-    /// The decision event is attempted before enforcement. A journal error
-    /// does not change the selected verdict. Adapter failure faults the runtime
-    /// and records a bounded failure event when possible.
+    /// Compatibility entry point for callers that already aggregate traffic
+    /// into descriptors. TCP flow-state tracking requires raw TCP flags; use
+    /// `evaluate_packet` for native packet callbacks.
     pub fn evaluate_and_enforce(
         &mut self,
         traffic: &TrafficDescriptor,
         now_ms: u64,
     ) -> Result<EnforcementResult, EnforcementRuntimeError<A::Error>> {
+        self.evaluate_internal(traffic, None, now_ms, false)
+    }
+
+    /// Process one validated packet observation. Native adapters must pass TCP
+    /// flags for TCP packets so the portable connection tracker can maintain
+    /// handshake/closing state. Rate limits and tracking failures fail closed.
+    pub fn evaluate_packet(
+        &mut self,
+        traffic: &TrafficDescriptor,
+        tcp_flags: Option<TcpFlags>,
+        now_ms: u64,
+    ) -> Result<EnforcementResult, EnforcementRuntimeError<A::Error>> {
+        self.evaluate_internal(traffic, tcp_flags, now_ms, true)
+    }
+
+    fn evaluate_internal(
+        &mut self,
+        traffic: &TrafficDescriptor,
+        tcp_flags: Option<TcpFlags>,
+        now_ms: u64,
+        track_packet: bool,
+    ) -> Result<EnforcementResult, EnforcementRuntimeError<A::Error>> {
         self.ensure_ready()?;
 
         let snapshot = self.engine.snapshot()?;
-        let decision = snapshot.decide(traffic);
-        let flow_id = traffic.flow_id;
+        let mut enriched_traffic = traffic.clone();
+        let mut decision = snapshot.decide(&enriched_traffic);
 
+        // A policy Deny is final. Only policy-allowed traffic reaches the
+        // limiter or tracker, so those subsystems can never override a Deny.
+        if decision.verdict == Verdict::Allow {
+            let peer = match traffic.direction {
+                Direction::Inbound => traffic.source,
+                Direction::Outbound => traffic.destination,
+            };
+
+            match self.client_limits.check(peer, now_ms) {
+                Ok(true) => {}
+                Ok(false) => {
+                    self.metrics.rate_limited = self.metrics.rate_limited.saturating_add(1);
+                    decision = PolicyDecision {
+                        verdict: Verdict::Deny,
+                        reason: DecisionReason::RateLimited {
+                            peer,
+                            reason: "per-client token bucket exhausted".to_owned(),
+                        },
+                    };
+                    let _ = self.record_event(
+                        now_ms,
+                        traffic.flow_id,
+                        SecurityEventKind::RateLimitExceeded {
+                            scope: "client-ip".to_owned(),
+                        },
+                    );
+                }
+                Err(error) => {
+                    self.metrics.rate_limited = self.metrics.rate_limited.saturating_add(1);
+                    decision = PolicyDecision {
+                        verdict: Verdict::Deny,
+                        reason: DecisionReason::RateLimited {
+                            peer,
+                            reason: error.to_string(),
+                        },
+                    };
+                    let _ = self.record_event(
+                        now_ms,
+                        traffic.flow_id,
+                        SecurityEventKind::RateLimitExceeded {
+                            scope: "client-limiter-unavailable".to_owned(),
+                        },
+                    );
+                }
+            }
+        }
+
+        if decision.verdict == Verdict::Allow && track_packet {
+            match self.tracker.observe(&enriched_traffic, tcp_flags, now_ms) {
+                Ok(observation) => {
+                    enriched_traffic.flow_id = Some(observation.flow_id);
+                    if observation.is_new {
+                        let _ = self.record_event(
+                            now_ms,
+                            Some(observation.flow_id),
+                            SecurityEventKind::ConnectionCreated,
+                        );
+                    } else if observation
+                        .previous_state
+                        .is_some_and(|previous| previous != observation.state)
+                    {
+                        let _ = self.record_event(
+                            now_ms,
+                            Some(observation.flow_id),
+                            SecurityEventKind::ConnectionStateChanged {
+                                state: format!("{:?}", observation.state),
+                            },
+                        );
+                    }
+                }
+                Err(error) => {
+                    self.metrics.tracking_failures =
+                        self.metrics.tracking_failures.saturating_add(1);
+                    decision = PolicyDecision {
+                        verdict: Verdict::Deny,
+                        reason: DecisionReason::ConnectionTrackingUnavailable {
+                            reason: error.to_string(),
+                        },
+                    };
+                }
+            }
+        }
+
+        let flow_id = enriched_traffic.flow_id.or(traffic.flow_id);
         let rule_id = match &decision.reason {
             DecisionReason::MatchedRule { rule_id } => Some(rule_id.clone()),
-            DecisionReason::DefaultPolicy => None,
+            _ => None,
         };
         let audit_sequence = self.record_event(
             now_ms,
@@ -212,7 +316,7 @@ where
             Verdict::Deny => self.metrics.denied = self.metrics.denied.saturating_add(1),
         }
 
-        if let Err(error) = self.adapter.enforce(traffic, &decision) {
+        if let Err(error) = self.adapter.enforce(&enriched_traffic, &decision) {
             self.metrics.enforcement_failures = self.metrics.enforcement_failures.saturating_add(1);
             self.faulted = true;
             let _ = self.record_event(
@@ -231,6 +335,52 @@ where
             decision,
             audit_sequence,
         })
+    }
+
+    /// Expire idle flows and client buckets. Call this periodically from the
+    /// host service's monotonic timer. If either state table reports a clock or
+    /// maintenance error, the runtime faults and refuses further traffic.
+    pub fn maintain(
+        &mut self,
+        now_ms: u64,
+    ) -> Result<EnforcementMaintenanceReport, EnforcementRuntimeError<A::Error>> {
+        self.ensure_ready()?;
+
+        let expired_flows = match self.tracker.expire_with_flow_ids(now_ms) {
+            Ok(flows) => flows,
+            Err(error) => {
+                self.faulted = true;
+                return Err(EnforcementRuntimeError::TrackerMaintenance(error));
+            }
+        };
+        let pruned_rate_limit_clients = match self.client_limits.prune_idle(now_ms) {
+            Ok(count) => count,
+            Err(error) => {
+                self.faulted = true;
+                return Err(EnforcementRuntimeError::RateLimitMaintenance(error));
+            }
+        };
+
+        for flow_id in &expired_flows {
+            let _ = self.record_event(
+                now_ms,
+                Some(*flow_id),
+                SecurityEventKind::ConnectionExpired,
+            );
+        }
+
+        Ok(EnforcementMaintenanceReport {
+            expired_flows,
+            pruned_rate_limit_clients,
+        })
+    }
+
+    pub fn active_flows(&self) -> usize {
+        self.tracker.len()
+    }
+
+    pub fn tracked_clients(&self) -> usize {
+        self.client_limits.key_count()
     }
 
     /// Replace policy atomically, then audit the committed generation.
@@ -255,6 +405,8 @@ where
 
         match self.adapter.shutdown() {
             Ok(()) => {
+                self.tracker.clear();
+                self.client_limits.clear();
                 self.initialized = false;
                 self.faulted = false;
                 Ok(())
