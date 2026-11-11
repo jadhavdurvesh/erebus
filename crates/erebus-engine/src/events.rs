@@ -4,8 +4,8 @@
 //! DNS query contents, and other secrets must not be added to this type.
 
 use erebus_types::{FlowId, Verdict};
-use std::net::IpAddr;
 use std::collections::VecDeque;
+use std::net::IpAddr;
 use thiserror::Error;
 
 pub const MAX_EVENT_TEXT_BYTES: usize = 256;
