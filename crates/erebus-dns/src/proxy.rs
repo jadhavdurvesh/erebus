@@ -894,35 +894,41 @@ mod tests {
     fn forwards_tcp_queries_with_dns_length_framing() {
         let upstream = TcpListener::bind("127.0.0.1:0").unwrap();
         let upstream_address = upstream.local_addr().unwrap();
-        let worker = thread::spawn(move || {
-            let Some(mut stream) = accept_test_connection(&upstream) else {
-                return false;
-            };
+        let worker = thread::spawn(move || -> Result<(), String> {
+            let mut stream = accept_test_connection(&upstream)
+                .ok_or_else(|| "TCP upstream fixture accept timed out".to_owned())?;
             stream
                 .set_read_timeout(Some(Duration::from_secs(3)))
-                .unwrap();
+                .map_err(|error| format!("set TCP fixture read timeout: {error}"))?;
             stream
                 .set_write_timeout(Some(Duration::from_secs(3)))
-                .unwrap();
+                .map_err(|error| format!("set TCP fixture write timeout: {error}"))?;
             let mut prefix = [0u8; 2];
-            if stream.read_exact(&mut prefix).is_err() {
-                return false;
-            }
+            stream
+                .read_exact(&mut prefix)
+                .map_err(|error| format!("read TCP DNS frame prefix: {error}"))?;
             let size = usize::from(u16::from_be_bytes(prefix));
             if !(DNS_HEADER_LEN..=4096).contains(&size) {
-                return false;
+                return Err(format!("invalid TCP DNS query frame length: {size}"));
             }
             let mut query = vec![0u8; size];
-            if stream.read_exact(&mut query).is_err() {
-                return false;
-            }
+            stream
+                .read_exact(&mut query)
+                .map_err(|error| format!("read TCP DNS query: {error}"))?;
             query[2] |= 0x80;
             query[3] |= 0x80;
+            let response_length = u16::try_from(query.len())
+                .map_err(|error| format!("encode TCP DNS response length: {error}"))?;
             stream
-                .write_all(&(query.len() as u16).to_be_bytes())
-                .is_ok()
-                && stream.write_all(&query).is_ok()
-                && stream.flush().is_ok()
+                .write_all(&response_length.to_be_bytes())
+                .map_err(|error| format!("write TCP DNS response prefix: {error}"))?;
+            stream
+                .write_all(&query)
+                .map_err(|error| format!("write TCP DNS response: {error}"))?;
+            stream
+                .flush()
+                .map_err(|error| format!("flush TCP DNS response: {error}"))?;
+            Ok(())
         });
 
         let proxy = DnsProxy::new(
@@ -938,7 +944,10 @@ mod tests {
         let response = proxy
             .handle_tcp_message(&query, "127.0.0.1:53002".parse().unwrap())
             .unwrap();
-        assert!(worker.join().unwrap());
+        worker
+            .join()
+            .unwrap()
+            .expect("TCP upstream fixture should complete the forwarding exchange");
 
         let parsed = DnsMessage::parse(&response).unwrap();
         assert!(parsed.is_response());
@@ -1003,47 +1012,51 @@ mod tests {
         }
     }
 
-    fn serve_dot_once(listener: TcpListener) -> bool {
-        let Some(socket) = accept_test_connection(&listener) else {
-            return false;
-        };
+    fn serve_dot_once(listener: TcpListener) -> Result<(), String> {
+        let socket = accept_test_connection(&listener)
+            .ok_or_else(|| "DoT fixture accept timed out".to_owned())?;
         let mut stream = tls_stream(socket);
         let mut prefix = [0u8; 2];
-        if stream.read_exact(&mut prefix).is_err() {
-            return false;
-        }
+        stream
+            .read_exact(&mut prefix)
+            .map_err(|error| format!("DoT TLS handshake or frame-prefix read failed: {error}"))?;
         let length = usize::from(u16::from_be_bytes(prefix));
         if length < DNS_HEADER_LEN || length > 4096 {
-            return false;
+            return Err(format!("invalid DoT DNS frame length: {length}"));
         }
         let mut query = vec![0u8; length];
-        if stream.read_exact(&mut query).is_err() {
-            return false;
-        }
+        stream
+            .read_exact(&mut query)
+            .map_err(|error| format!("read DoT DNS query: {error}"))?;
         query[2] |= 0x80;
         query[3] |= 0x80;
-        let Ok(length) = u16::try_from(query.len()) else {
-            return false;
-        };
-        stream.write_all(&length.to_be_bytes()).is_ok()
-            && stream.write_all(&query).is_ok()
-            && stream.flush().is_ok()
+        let response_length = u16::try_from(query.len())
+            .map_err(|error| format!("encode DoT DNS response length: {error}"))?;
+        stream
+            .write_all(&response_length.to_be_bytes())
+            .map_err(|error| format!("write DoT DNS response prefix: {error}"))?;
+        stream
+            .write_all(&query)
+            .map_err(|error| format!("write DoT DNS response: {error}"))?;
+        stream
+            .flush()
+            .map_err(|error| format!("flush DoT DNS response: {error}"))?;
+        Ok(())
     }
 
-    fn serve_doh_once(listener: TcpListener) -> bool {
-        let Some(socket) = accept_test_connection(&listener) else {
-            return false;
-        };
+    fn serve_doh_once(listener: TcpListener) -> Result<(), String> {
+        let socket = accept_test_connection(&listener)
+            .ok_or_else(|| "DoH fixture accept timed out".to_owned())?;
         let mut stream = tls_stream(socket);
         let mut headers = Vec::new();
         loop {
             let mut byte = [0u8; 1];
-            if stream.read_exact(&mut byte).is_err() {
-                return false;
-            }
+            stream
+                .read_exact(&mut byte)
+                .map_err(|error| format!("DoH TLS handshake or HTTP header read failed: {error}"))?;
             headers.push(byte[0]);
             if headers.len() > 8192 {
-                return false;
+                return Err("DoH request headers exceeded 8192 bytes".to_owned());
             }
             if headers.ends_with(b"\r\n\r\n") {
                 break;
@@ -1051,45 +1064,54 @@ mod tests {
         }
 
         let header_text = String::from_utf8_lossy(&headers);
-        if !header_text.starts_with("POST /dns-query HTTP/1.1")
-            || !header_text
-                .to_ascii_lowercase()
-                .contains("content-type: application/dns-message")
-            || !header_text
-                .to_ascii_lowercase()
-                .contains("accept: application/dns-message")
-        {
-            return false;
+        if !header_text.starts_with("POST /dns-query HTTP/1.1") {
+            return Err(format!("unexpected DoH request line: {}", header_text.lines().next().unwrap_or("")));
         }
-        let Some(content_length) = header_text.lines().find_map(|line| {
-            let (name, value) = line.split_once(':')?;
-            name.eq_ignore_ascii_case("content-length")
-                .then(|| value.trim().parse::<usize>().ok())
-                .flatten()
-        }) else {
-            return false;
-        };
+        if !header_text
+            .to_ascii_lowercase()
+            .contains("content-type: application/dns-message")
+        {
+            return Err("DoH request has no DNS message content type".to_owned());
+        }
+        if !header_text
+            .to_ascii_lowercase()
+            .contains("accept: application/dns-message")
+        {
+            return Err("DoH request has no DNS message Accept header".to_owned());
+        }
+        let content_length = header_text
+            .lines()
+            .find_map(|line| {
+                let (name, value) = line.split_once(':')?;
+                name.eq_ignore_ascii_case("content-length")
+                    .then(|| value.trim().parse::<usize>().ok())
+                    .flatten()
+            })
+            .ok_or_else(|| "DoH request has no valid Content-Length".to_owned())?;
         if !(DNS_HEADER_LEN..=4096).contains(&content_length) {
-            return false;
+            return Err(format!("invalid DoH DNS body length: {content_length}"));
         }
 
         let mut body = vec![0u8; content_length];
-        if stream.read_exact(&mut body).is_err() {
-            return false;
-        }
+        stream
+            .read_exact(&mut body)
+            .map_err(|error| format!("read DoH DNS body: {error}"))?;
         body[2] |= 0x80;
         body[3] |= 0x80;
         let response_headers = format!(
             "HTTP/1.1 200 OK\r\nContent-Type: application/dns-message\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
             body.len()
         );
-        if stream.write_all(response_headers.as_bytes()).is_err()
-            || stream.write_all(&body).is_err()
-            || stream.flush().is_err()
-        {
-            return false;
-        }
-        true
+        stream
+            .write_all(response_headers.as_bytes())
+            .map_err(|error| format!("write DoH HTTP response headers: {error}"))?;
+        stream
+            .write_all(&body)
+            .map_err(|error| format!("write DoH DNS response body: {error}"))?;
+        stream
+            .flush()
+            .map_err(|error| format!("flush DoH HTTP response: {error}"))?;
+        Ok(())
     }
 
     #[test]
@@ -1132,7 +1154,10 @@ mod tests {
                 "127.0.0.1:53004".parse().unwrap(),
             )
             .unwrap();
-        assert!(worker.join().unwrap());
+        worker
+            .join()
+            .unwrap()
+            .expect("DoT fixture should complete the encrypted DNS exchange");
 
         let parsed = DnsMessage::parse(&response).unwrap();
         assert!(parsed.is_response());
@@ -1228,7 +1253,10 @@ mod tests {
                 "127.0.0.1:53007".parse().unwrap(),
             )
             .unwrap();
-        assert!(worker.join().unwrap());
+        worker
+            .join()
+            .unwrap()
+            .expect("DoH fixture should complete the encrypted DNS exchange");
 
         let parsed = DnsMessage::parse(&response).unwrap();
         assert!(parsed.is_response());
