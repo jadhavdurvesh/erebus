@@ -147,7 +147,11 @@ cargo run -p erebus-cli -- dns-serve examples/dns-policy.toml \
 
 For DoT, rustls validates the upstream certificate chain against the bundled public root set and verifies the configured server name. For DoH, reqwest uses rustls-backed HTTPS validation, disables redirects and environment proxies, and pins the URL hostname to the numeric bootstrap IP supplied with `--upstream`. This avoids needing a system DNS lookup to find the DoH server.
 
-When an encrypted transport is selected, any connection, TLS, HTTP, certificate, response-type, or message-validation error returns SERVFAIL. It never retries the query over plaintext UDP/TCP. Custom private CAs, certificate pinning, DoH GET mode, HTTP/3, DoQ, DNSSEC validation, and DoT/DoH listener-side transports are not implemented yet.
+The library configuration also accepts additional DER-encoded trust anchors through `DnsProxyConfig::additional_trust_anchors`. This is intended for explicitly managed private PKI and isolated tests; it augments rather than replaces the public root set. The CLI currently exposes only the public-root trust configuration. The repository's test certificate and private key under `crates/erebus-dns/tests/fixtures/` are test-only and must never be used as production credentials.
+
+The encrypted transport tests run local TLS/HTTPS servers and verify successful DoT/DoH exchanges, untrusted-CA rejection for both protocols, and hostname mismatch rejection for DoT and DoH. They do not contact public resolvers.
+
+When an encrypted transport is selected, any connection, TLS, HTTP, certificate, response-type, or message-validation error returns SERVFAIL. It never retries the query over plaintext UDP/TCP. Certificate pinning, DoH GET mode, HTTP/3, DoQ, DNSSEC validation, and DoT/DoH listener-side transports are not implemented yet.
 
 ## Engine integration
 
