@@ -720,7 +720,7 @@ default = "allow"
         assert!(runtime
             .events()
             .iter()
-            .any(|event| matches!(event.kind, SecurityEventKind::RateLimitExceeded { .. })));
+            .any(|event| matches!(event.kind, SecurityEventKind::ClientRateLimitExceeded { peer } if peer == "198.51.100.20".parse::<IpAddr>().unwrap())));
     }
 
     #[test]
@@ -762,6 +762,10 @@ default = "allow"
             blocked.decision.reason,
             DecisionReason::ConnectionTrackingUnavailable { .. }
         ));
+        assert!(runtime.events().iter().any(|event| matches!(
+            event.kind,
+            SecurityEventKind::ConnectionTrackingFailure { .. }
+        )));
         assert_eq!(runtime.metrics().tracking_failures, 1);
         assert_eq!(runtime.active_flows(), 1);
         assert_eq!(
