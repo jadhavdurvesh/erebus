@@ -5,8 +5,9 @@
 //! operating-system-specific act of applying a verdict.
 
 use crate::{
-    ConnectionTracker, EventJournal, EventJournalError, KeyedRateLimiter, KeyedRateLimiterConfig,
-    RateLimitError, SecurityEvent, SecurityEventKind, TcpFlags, TrackerConfig, TrackerError,
+    ConnectionTracker, Engine, EventJournal, EventJournalError, KeyedRateLimiter,
+    KeyedRateLimiterConfig, RateLimitError, SecurityEvent, SecurityEventKind, TcpFlags,
+    TrackerConfig, TrackerError,
 };
 use erebus_adapter_api::{AdapterState, PlatformAdapter};
 use erebus_types::{DecisionReason, Direction, FlowId, PolicyDecision, TrafficDescriptor, Verdict};
