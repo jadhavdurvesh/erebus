@@ -1,9 +1,7 @@
-//! Blocking, standard-library DNS proxy transport.
+//! DNS proxy transport for UDP/TCP clients and UDP/TCP/DoT/DoH upstreams.
 //!
-//! This v1 transport supports local UDP and TCP clients and forwards to a
-//! configured plain UDP/TCP upstream. TLS and HTTPS are deliberately not
-//! downgraded to plaintext: DoT/DoH require a separately configured secure
-//! transport implementation and are not provided by this module.
+//! Encrypted upstreams verify certificates by default. Additional DER trust
+//! anchors can be supplied for private PKI; there is never a plaintext fallback.
 
 use crate::{
     tracker::DnsTransport,
@@ -42,6 +40,9 @@ pub struct DnsProxyConfig {
     pub tls_server_name: Option<String>,
     /// Required for DoH; only HTTPS URLs are accepted.
     pub https_url: Option<String>,
+    /// Additional DER-encoded trust anchors for private PKI and test fixtures.
+    /// The system/public Web PKI roots remain enabled.
+    pub additional_trust_anchors: Vec<Vec<u8>>,
     pub connect_timeout: Duration,
     pub io_timeout: Duration,
     pub max_message_bytes: usize,
@@ -55,6 +56,7 @@ impl Default for DnsProxyConfig {
             upstream_protocol: DnsUpstreamProtocol::Udp,
             tls_server_name: None,
             https_url: None,
+            additional_trust_anchors: Vec::new(),
             connect_timeout: Duration::from_secs(3),
             io_timeout: Duration::from_secs(5),
             max_message_bytes: 4096,
@@ -220,8 +222,7 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
             let url = url::Url::parse(config.https_url.as_deref().expect("validated above"))
                 .map_err(|_| DnsProxyError::InvalidHttpsUrl)?;
             let host = url.host_str().expect("validated HTTPS host");
-            Some(
-                reqwest::blocking::Client::builder()
+            let mut builder = reqwest::blocking::Client::builder()
                     .https_only(true)
                     .no_proxy()
                     .redirect(reqwest::redirect::Policy::none())
@@ -229,10 +230,13 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
                     .timeout(config.io_timeout)
                     // Bootstrap the HTTPS hostname using the configured numeric
                     // resolver address to avoid recursive system DNS lookups.
-                    .resolve_to_addrs(host, &[config.upstream])
-                    .build()
-                    .map_err(|_| DnsProxyError::InvalidHttpsUrl)?,
-            )
+                    .resolve_to_addrs(host, &[config.upstream]);
+            for anchor in &config.additional_trust_anchors {
+                let certificate = reqwest::Certificate::from_der(anchor)
+                    .map_err(|_| DnsProxyError::InvalidHttpsUrl)?;
+                builder = builder.add_root_certificate(certificate);
+            }
+            Some(builder.build().map_err(|_| DnsProxyError::InvalidHttpsUrl)?)
         } else {
             None
         };
@@ -517,8 +521,15 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
         tcp.set_read_timeout(Some(self.config.io_timeout))?;
         tcp.set_write_timeout(Some(self.config.io_timeout))?;
 
-        let roots =
+        let mut roots =
             rustls::RootCertStore::from_iter(webpki_roots::TLS_SERVER_ROOTS.iter().cloned());
+        for anchor in &self.config.additional_trust_anchors {
+            roots
+                .add(rustls::pki_types::CertificateDer::from(anchor.clone()))
+                .map_err(|error| {
+                    io::Error::new(io::ErrorKind::InvalidInput, error.to_string())
+                })?;
+        }
         let tls_config = rustls::ClientConfig::builder()
             .with_root_certificates(roots)
             .with_no_client_auth();
