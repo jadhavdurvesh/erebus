@@ -24,11 +24,24 @@ use thiserror::Error;
 
 const DNS_HEADER_LEN: usize = 12;
 
-#[derive(Clone, Copy, Debug)]
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum DnsUpstreamProtocol {
+    Udp,
+    Tcp,
+    Dot,
+    Doh,
+}
+
+#[derive(Clone, Debug)]
 pub struct DnsProxyConfig {
     /// Numeric upstream resolver address. Hostname resolution is intentionally
     /// excluded from the proxy hot path to avoid recursive system DNS lookup.
     pub upstream: SocketAddr,
+    pub upstream_protocol: DnsUpstreamProtocol,
+    /// Required for DoT; this is verified against the upstream certificate.
+    pub tls_server_name: Option<String>,
+    /// Required for DoH; only HTTPS URLs are accepted.
+    pub https_url: Option<String>,
     pub connect_timeout: Duration,
     pub io_timeout: Duration,
     pub max_message_bytes: usize,
@@ -39,6 +52,9 @@ impl Default for DnsProxyConfig {
     fn default() -> Self {
         Self {
             upstream: SocketAddr::from(([1, 1, 1, 1], 53)),
+            upstream_protocol: DnsUpstreamProtocol::Udp,
+            tls_server_name: None,
+            https_url: None,
             connect_timeout: Duration::from_secs(3),
             io_timeout: Duration::from_secs(5),
             max_message_bytes: 4096,
@@ -99,6 +115,10 @@ pub enum DnsProxyError {
     MismatchedResponse,
     #[error("DNS TCP frame length is invalid")]
     InvalidTcpFrame,
+    #[error("DoT requires a valid TLS server name for certificate verification")]
+    MissingTlsServerName,
+    #[error("DoH requires a valid HTTPS URL with a hostname and no user-info or fragment")]
+    InvalidHttpsUrl,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -140,6 +160,7 @@ pub trait DnsProxyPolicy: Send {
 pub struct DnsProxy<P: DnsProxyPolicy> {
     service: Arc<Mutex<P>>,
     config: DnsProxyConfig,
+    doh_client: Option<reqwest::blocking::Client>,
     started_at: Instant,
     active_tcp_connections: Arc<AtomicUsize>,
     metrics: Arc<AtomicMetrics>,
@@ -149,7 +170,8 @@ impl<P: DnsProxyPolicy> Clone for DnsProxy<P> {
     fn clone(&self) -> Self {
         Self {
             service: Arc::clone(&self.service),
-            config: self.config,
+            config: self.config.clone(),
+            doh_client: self.doh_client.clone(),
             started_at: self.started_at,
             active_tcp_connections: Arc::clone(&self.active_tcp_connections),
             metrics: Arc::clone(&self.metrics),
@@ -167,9 +189,59 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
             return Err(DnsProxyError::InvalidMessageLimit);
         }
 
+        match config.upstream_protocol {
+            DnsUpstreamProtocol::Dot => {
+                let server_name = config
+                    .tls_server_name
+                    .as_deref()
+                    .ok_or(DnsProxyError::MissingTlsServerName)?;
+                rustls::pki_types::ServerName::try_from(server_name.to_owned())
+                    .map_err(|_| DnsProxyError::MissingTlsServerName)?;
+            }
+            DnsUpstreamProtocol::Doh => {
+                let raw_url = config
+                    .https_url
+                    .as_deref()
+                    .ok_or(DnsProxyError::InvalidHttpsUrl)?;
+                let url = url::Url::parse(raw_url)
+                    .map_err(|_| DnsProxyError::InvalidHttpsUrl)?;
+                if url.scheme() != "https"
+                    || url.host_str().is_none()
+                    || !url.username().is_empty()
+                    || url.password().is_some()
+                    || url.fragment().is_some()
+                {
+                    return Err(DnsProxyError::InvalidHttpsUrl);
+                }
+            }
+            DnsUpstreamProtocol::Udp | DnsUpstreamProtocol::Tcp => {}
+        }
+
+        let doh_client = if config.upstream_protocol == DnsUpstreamProtocol::Doh {
+            let url = url::Url::parse(config.https_url.as_deref().expect("validated above"))
+                .map_err(|_| DnsProxyError::InvalidHttpsUrl)?;
+            let host = url.host_str().expect("validated HTTPS host");
+            Some(
+                reqwest::blocking::Client::builder()
+                    .https_only(true)
+                    .no_proxy()
+                    .redirect(reqwest::redirect::Policy::none())
+                    .connect_timeout(config.connect_timeout)
+                    .timeout(config.io_timeout)
+                    // Bootstrap the HTTPS hostname using the configured numeric
+                    // resolver address to avoid recursive system DNS lookups.
+                    .resolve_to_addrs(host, &[config.upstream])
+                    .build()
+                    .map_err(|_| DnsProxyError::InvalidHttpsUrl)?,
+            )
+        } else {
+            None
+        };
+
         Ok(Self {
             service: Arc::new(Mutex::new(service)),
             config,
+            doh_client,
             started_at: Instant::now(),
             active_tcp_connections: Arc::new(AtomicUsize::new(0)),
             metrics: Arc::new(AtomicMetrics::default()),
@@ -177,7 +249,7 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
     }
 
     pub fn config(&self) -> DnsProxyConfig {
-        self.config
+        self.config.clone()
     }
 
     pub fn metrics(&self) -> DnsProxyMetrics {
@@ -382,10 +454,7 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
             }
         }
 
-        let upstream_response = match transport {
-            DnsTransport::Udp => self.forward_udp(payload),
-            DnsTransport::Tcp => self.forward_tcp(payload),
-        };
+        let upstream_response = self.forward_upstream(payload, transport);
 
         let response_bytes = match upstream_response {
             Ok(bytes) => bytes,
@@ -425,6 +494,123 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
         }
 
         Ok(response_bytes)
+    }
+
+    fn forward_upstream(
+        &self,
+        query: &[u8],
+        client_transport: DnsTransport,
+    ) -> io::Result<Vec<u8>> {
+        match self.config.upstream_protocol {
+            DnsUpstreamProtocol::Udp => self.forward_udp(query),
+            DnsUpstreamProtocol::Tcp => self.forward_tcp(query),
+            DnsUpstreamProtocol::Dot => self.forward_dot(query),
+            DnsUpstreamProtocol::Doh => self.forward_doh(query),
+        }
+    }
+
+    fn forward_dot(&self, query: &[u8]) -> io::Result<Vec<u8>> {
+        let server_name = self
+            .config
+            .tls_server_name
+            .as_deref()
+            .ok_or_else(|| io::Error::new(io::ErrorKind::InvalidInput, "missing DoT TLS server name"))?;
+        let server_name = rustls::pki_types::ServerName::try_from(server_name.to_owned())
+            .map_err(|_| io::Error::new(io::ErrorKind::InvalidInput, "invalid DoT TLS server name"))?;
+
+        let tcp = TcpStream::connect_timeout(&self.config.upstream, self.config.connect_timeout)?;
+        tcp.set_read_timeout(Some(self.config.io_timeout))?;
+        tcp.set_write_timeout(Some(self.config.io_timeout))?;
+
+        let roots = rustls::RootCertStore::from_iter(
+            webpki_roots::TLS_SERVER_ROOTS.iter().cloned(),
+        );
+        let tls_config = rustls::ClientConfig::builder()
+            .with_root_certificates(roots)
+            .with_no_client_auth();
+        let connection = rustls::ClientConnection::new(Arc::new(tls_config), server_name)
+            .map_err(|error| io::Error::new(io::ErrorKind::ConnectionAborted, error))?;
+        let mut stream = rustls::StreamOwned::new(connection, tcp);
+
+        let query_len = u16::try_from(query.len()).map_err(|_| {
+            io::Error::new(io::ErrorKind::InvalidInput, "DNS query exceeds TCP frame size")
+        })?;
+        stream.write_all(&query_len.to_be_bytes())?;
+        stream.write_all(query)?;
+        stream.flush()?;
+
+        let mut prefix = [0u8; 2];
+        stream.read_exact(&mut prefix)?;
+        let response_len = usize::from(u16::from_be_bytes(prefix));
+        if response_len < DNS_HEADER_LEN || response_len > self.config.max_message_bytes {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "DoT response frame length is invalid",
+            ));
+        }
+
+        let mut response = vec![0u8; response_len];
+        stream.read_exact(&mut response)?;
+        Ok(response)
+    }
+
+    fn forward_doh(&self, query: &[u8]) -> io::Result<Vec<u8>> {
+        let client = self.doh_client.as_ref().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "DoH client is not configured")
+        })?;
+        let endpoint = self.config.https_url.as_deref().ok_or_else(|| {
+            io::Error::new(io::ErrorKind::InvalidInput, "DoH URL is not configured")
+        })?;
+
+        let mut response = client
+            .post(endpoint)
+            .header(reqwest::header::CONTENT_TYPE, "application/dns-message")
+            .header(reqwest::header::ACCEPT, "application/dns-message")
+            .body(query.to_vec())
+            .send()
+            .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+
+        if !response.status().is_success() {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                format!("DoH upstream returned HTTP {}", response.status()),
+            ));
+        }
+
+        let content_type = response
+            .headers()
+            .get(reqwest::header::CONTENT_TYPE)
+            .and_then(|value| value.to_str().ok())
+            .and_then(|value| value.split(';').next())
+            .map(str::trim);
+        if content_type != Some("application/dns-message") {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "DoH upstream returned an unexpected content type",
+            ));
+        }
+
+        if response
+            .content_length()
+            .is_some_and(|length| length > self.config.max_message_bytes as u64)
+        {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "DoH response exceeds configured message limit",
+            ));
+        }
+
+        let mut body = Vec::with_capacity(self.config.max_message_bytes.min(4096));
+        response
+            .take(self.config.max_message_bytes as u64 + 1)
+            .read_to_end(&mut body)?;
+        if body.len() > self.config.max_message_bytes {
+            return Err(io::Error::new(
+                io::ErrorKind::InvalidData,
+                "DoH response exceeds configured message limit",
+            ));
+        }
+        Ok(body)
     }
 
     fn forward_udp(&self, query: &[u8]) -> io::Result<Vec<u8>> {
