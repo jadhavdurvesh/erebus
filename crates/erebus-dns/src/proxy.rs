@@ -564,7 +564,7 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
             .header(reqwest::header::ACCEPT, "application/dns-message")
             .body(query.to_vec())
             .send()
-            .map_err(|error| io::Error::new(io::ErrorKind::Other, error))?;
+            .map_err(io::Error::other)?;
 
         if !response.status().is_success() {
             return Err(io::Error::new(
@@ -965,6 +965,26 @@ mod tests {
             },
         );
         assert!(matches!(plaintext_url, Err(DnsProxyError::InvalidHttpsUrl)));
+
+        let credential_url = DnsProxy::new(
+            test_service(),
+            DnsProxyConfig {
+                upstream_protocol: DnsUpstreamProtocol::Doh,
+                https_url: Some("https://user:password@resolver.example/dns-query".into()),
+                ..DnsProxyConfig::default()
+            },
+        );
+        assert!(matches!(credential_url, Err(DnsProxyError::InvalidHttpsUrl)));
+
+        let fragment_url = DnsProxy::new(
+            test_service(),
+            DnsProxyConfig {
+                upstream_protocol: DnsUpstreamProtocol::Doh,
+                https_url: Some("https://resolver.example/dns-query#fragment".into()),
+                ..DnsProxyConfig::default()
+            },
+        );
+        assert!(matches!(fragment_url, Err(DnsProxyError::InvalidHttpsUrl)));
     }
 
     #[test]
