@@ -454,7 +454,7 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
             }
         }
 
-        let upstream_response = self.forward_upstream(payload, transport);
+        let upstream_response = self.forward_upstream(payload);
 
         let response_bytes = match upstream_response {
             Ok(bytes) => bytes,
@@ -496,11 +496,7 @@ impl<P: DnsProxyPolicy + 'static> DnsProxy<P> {
         Ok(response_bytes)
     }
 
-    fn forward_upstream(
-        &self,
-        query: &[u8],
-        client_transport: DnsTransport,
-    ) -> io::Result<Vec<u8>> {
+    fn forward_upstream(&self, query: &[u8]) -> io::Result<Vec<u8>> {
         match self.config.upstream_protocol {
             DnsUpstreamProtocol::Udp => self.forward_udp(query),
             DnsUpstreamProtocol::Tcp => self.forward_tcp(query),
@@ -928,6 +924,74 @@ mod tests {
         response.header.id = 5;
         response.questions[0].qtype = 28;
         assert!(!matches_query(&query, &response));
+    }
+
+    #[test]
+    fn secure_upstreams_require_explicit_server_identity_and_endpoint() {
+        let dot = DnsProxy::new(
+            test_service(),
+            DnsProxyConfig {
+                upstream_protocol: DnsUpstreamProtocol::Dot,
+                ..DnsProxyConfig::default()
+            },
+        );
+        assert!(matches!(dot, Err(DnsProxyError::MissingTlsServerName)));
+
+        let bad_dot = DnsProxy::new(
+            test_service(),
+            DnsProxyConfig {
+                upstream_protocol: DnsUpstreamProtocol::Dot,
+                tls_server_name: Some("not a valid name".into()),
+                ..DnsProxyConfig::default()
+            },
+        );
+        assert!(matches!(bad_dot, Err(DnsProxyError::MissingTlsServerName)));
+
+        let doh = DnsProxy::new(
+            test_service(),
+            DnsProxyConfig {
+                upstream_protocol: DnsUpstreamProtocol::Doh,
+                ..DnsProxyConfig::default()
+            },
+        );
+        assert!(matches!(doh, Err(DnsProxyError::InvalidHttpsUrl)));
+
+        let plaintext_url = DnsProxy::new(
+            test_service(),
+            DnsProxyConfig {
+                upstream_protocol: DnsUpstreamProtocol::Doh,
+                https_url: Some("http://resolver.example/dns-query".into()),
+                ..DnsProxyConfig::default()
+            },
+        );
+        assert!(matches!(plaintext_url, Err(DnsProxyError::InvalidHttpsUrl)));
+    }
+
+    #[test]
+    fn valid_dot_and_doh_configuration_is_accepted_without_plaintext_fallback() {
+        let dot = DnsProxy::new(
+            test_service(),
+            DnsProxyConfig {
+                upstream: "1.1.1.1:853".parse().unwrap(),
+                upstream_protocol: DnsUpstreamProtocol::Dot,
+                tls_server_name: Some("cloudflare-dns.com".into()),
+                ..DnsProxyConfig::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(dot.config().upstream_protocol, DnsUpstreamProtocol::Dot);
+
+        let doh = DnsProxy::new(
+            test_service(),
+            DnsProxyConfig {
+                upstream: "1.1.1.1:443".parse().unwrap(),
+                upstream_protocol: DnsUpstreamProtocol::Doh,
+                https_url: Some("https://cloudflare-dns.com/dns-query".into()),
+                ..DnsProxyConfig::default()
+            },
+        )
+        .unwrap();
+        assert_eq!(doh.config().upstream_protocol, DnsUpstreamProtocol::Doh);
     }
 
     #[test]
