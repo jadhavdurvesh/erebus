@@ -207,7 +207,9 @@ where
         now_ms: u64,
         track_packet: bool,
     ) -> Result<EnforcementResult, EnforcementRuntimeError<A::Error>> {
-        self.ensure_ready()?;
+        // Sweep expired state before applying new traffic so an expired
+        // flow cannot disappear silently inside the tracker observation path.
+        self.maintain(now_ms)?;
 
         let snapshot = self.engine.snapshot()?;
         let mut enriched_traffic = traffic.clone();
@@ -838,6 +840,44 @@ default = "allow"
     }
 
     #[test]
+    fn packet_evaluation_records_expiry_before_recreating_an_idle_flow() {
+        let mut runtime = EnforcementRuntime::with_config(
+            Engine::from_toml(ALLOW_ALL).unwrap(),
+            MockAdapter::default(),
+            small_config(8, 10, 1_000),
+        )
+        .unwrap();
+        runtime.initialize().unwrap();
+        let packet = udp_descriptor(
+            "198.51.100.60",
+            51_000,
+            "192.0.2.10",
+            5353,
+            Direction::Inbound,
+        );
+
+        runtime.evaluate_packet(&packet, None, 0).unwrap();
+        runtime.evaluate_packet(&packet, None, 11).unwrap();
+
+        let expired = runtime
+            .events()
+            .into_iter()
+            .filter(|event| matches!(event.kind, SecurityEventKind::ConnectionExpired))
+            .filter_map(|event| event.flow_id)
+            .collect::<Vec<_>>();
+        let created = runtime
+            .events()
+            .into_iter()
+            .filter(|event| matches!(event.kind, SecurityEventKind::ConnectionCreated))
+            .filter_map(|event| event.flow_id)
+            .collect::<Vec<_>>();
+
+        assert_eq!(expired, vec![FlowId(1)]);
+        assert_eq!(created, vec![FlowId(1), FlowId(2)]);
+        assert_eq!(runtime.active_flows(), 1);
+    }
+
+    #[test]
     fn shutdown_clears_flow_and_rate_limit_state_before_reinitialize() {
         let mut runtime = EnforcementRuntime::with_config(
             Engine::from_toml(ALLOW_ALL).unwrap(),
@@ -1036,18 +1076,22 @@ default = "allow"
     }
 
     #[test]
-    fn audit_clock_failure_does_not_change_selected_verdict_or_skip_enforcement() {
+    fn monotonic_clock_regression_faults_runtime_before_processing_traffic() {
         let mut runtime = make_runtime(ALLOW_ALL, MockAdapter::default());
         runtime.initialize().unwrap();
         runtime.evaluate_and_enforce(&descriptor(443), 20).unwrap();
-        let result = runtime.evaluate_and_enforce(&descriptor(443), 19).unwrap();
 
-        assert_eq!(result.decision.verdict, Verdict::Allow);
-        assert_eq!(runtime.metrics().audit_write_failures, 1);
-        assert_eq!(
-            runtime.adapter().applied,
-            vec![Verdict::Allow, Verdict::Allow]
-        );
+        assert!(matches!(
+            runtime.evaluate_and_enforce(&descriptor(443), 19),
+            Err(EnforcementRuntimeError::TrackerMaintenance(
+                TrackerError::ClockWentBackwards {
+                    previous_ms: 20,
+                    received_ms: 19
+                }
+            ))
+        ));
+        assert!(runtime.is_faulted());
+        assert_eq!(runtime.adapter().applied, vec![Verdict::Allow]);
     }
 
     #[test]
