@@ -406,7 +406,9 @@ impl ConnectionTracker {
     /// Clear all flow state after a successful adapter shutdown or reset.
     pub fn clear(&mut self) {
         self.entries.clear();
-        self.next_flow_id = 1;
+        // Keep flow IDs monotonic across adapter restarts. The event journal
+        // survives shutdown, so reusing an old ID would make historical events
+        // ambiguous after reinitialization.
         self.last_observed_ms = None;
     }
 
@@ -737,6 +739,41 @@ mod tests {
                 received_ms: 9
             })
         );
+    }
+
+    #[test]
+    fn clear_preserves_monotonic_flow_identifier_sequence() {
+        let mut tracker = new_tracker(4);
+        let first = tracker
+            .observe(
+                &packet(
+                    TransportProtocol::Udp,
+                    "192.0.2.1",
+                    Some(1000),
+                    "198.51.100.1",
+                    Some(2000),
+                ),
+                None,
+                1,
+            )
+            .unwrap();
+        tracker.clear();
+        let next = tracker
+            .observe(
+                &packet(
+                    TransportProtocol::Udp,
+                    "192.0.2.2",
+                    Some(1001),
+                    "198.51.100.2",
+                    Some(2001),
+                ),
+                None,
+                1,
+            )
+            .unwrap();
+
+        assert_eq!(first.flow_id, FlowId(1));
+        assert_eq!(next.flow_id, FlowId(2));
     }
 
     #[test]
