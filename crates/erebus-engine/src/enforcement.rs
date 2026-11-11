@@ -835,6 +835,13 @@ default = "allow"
                 .verdict,
             Verdict::Allow
         );
+        let created_flow_ids = runtime
+            .events()
+            .iter()
+            .filter(|event| matches!(event.kind, SecurityEventKind::ConnectionCreated))
+            .filter_map(|event| event.flow_id)
+            .collect::<Vec<_>>();
+        assert_eq!(created_flow_ids, vec![FlowId(1), FlowId(2)]);
     }
 
     #[test]
